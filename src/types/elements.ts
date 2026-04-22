@@ -99,6 +99,27 @@ export type BlockElementContent = {
 
 export type HeaderSlots = Partial<Record<HeaderSlotType, ElementNode[]>>;
 
+export type LocationRef =
+  | {
+      pageId: string;
+      type: "page";
+    }
+  | {
+      pageId: string;
+      sectionId: string;
+      type: "section";
+    }
+  | {
+      containerId: string;
+      pageId: string;
+      sectionId: string;
+      type: "container";
+    }
+  | {
+      slot: HeaderSlotType;
+      type: "headerSlot";
+    };
+
 export type ElementInsertionTarget =
   | {
       kind: "headerSlot";

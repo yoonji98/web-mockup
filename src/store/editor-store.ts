@@ -5,7 +5,7 @@ import { z } from "zod";
 import { create } from "zustand";
 
 import { createDefaultBlock } from "@/data/block-defaults";
-import { createDefaultElement } from "@/data/element-defaults";
+import { createDefaultContainer, createDefaultElement } from "@/data/element-defaults";
 import { projectPaymentStatusSchema, type ProjectPaymentStatus } from "@/lib/project-repository";
 import {
   createDefaultSiteData,
@@ -58,6 +58,7 @@ import type {
   ElementTreeNode,
   HeaderSlotType,
   HeaderSlots,
+  LocationRef,
 } from "@/types/elements";
 
 export const EDITOR_DRAFT_STORAGE_KEY = "ai-landing-builder-draft";
@@ -111,13 +112,38 @@ type ContainerUpdate = {
   style?: ElementStyle;
 };
 
+type MoveElementInput = {
+  elementId: string;
+  from: LocationRef;
+  index?: number;
+  to: LocationRef;
+};
+
+type EditorHistorySnapshot = {
+  currentPageId: string;
+  paymentStatus: ProjectPaymentStatus;
+  previewMode: PreviewMode;
+  selectedBlockId: string | null;
+  selectedContainerId: string | null;
+  selectedElementId: string | null;
+  selectedHeaderSlot: HeaderSlotType | null;
+  selectedInsertionTarget: ElementInsertionTarget | null;
+  site: SiteData;
+};
+
 type EditorState = {
   page: PageData;
   site: SiteData;
   currentPageId: string;
   customPalettes: Palette[];
+  historyFuture: EditorHistorySnapshot[];
+  historyGroupAt: number;
+  historyGroupKey: string | null;
+  historyPast: EditorHistorySnapshot[];
   selectedBlockId: string | null;
+  selectedContainerId: string | null;
   selectedElementId: string | null;
+  selectedHeaderSlot: HeaderSlotType | null;
   selectedInsertionTarget: ElementInsertionTarget | null;
   previewMode: PreviewMode;
   paymentStatus: ProjectPaymentStatus;
@@ -132,18 +158,33 @@ type EditorState = {
   updatePage: (id: string, partial: Partial<Omit<SitePage, "id" | "blocks">>) => void;
   setCurrentPage: (id: string) => void;
   selectBlock: (id: string | null) => void;
-  selectElement: (selection: ElementSelection | null) => void;
+  selectContainer: (id: string | null) => void;
+  selectElement: (selection: ElementSelection | string | null) => void;
+  setSelectedHeaderSlot: (slot: HeaderSlotType | null) => void;
   selectInsertionTarget: (target: ElementInsertionTarget | null) => void;
+  clearSelection: () => void;
+  findContainerLocation: (containerId: string) => LocationRef | null;
+  findElementLocation: (elementId: string) => LocationRef | null;
+  getSelectedLocation: () => LocationRef | null;
   addBlock: (type: BlockType) => void;
   addBlockToCurrentPage: (type: BlockType) => void;
+  insertBlockAt: (type: BlockType, index?: number) => void;
   removeBlock: (id: string) => void;
   duplicateBlock: (id: string) => void;
   updateBlock: (id: string, props: BlockPropsUpdate) => void;
+  addElementToContainer: (containerId: string, type: ElementNodeType, index?: number) => void;
+  addElementToLocation: (type: ElementNodeType, location: LocationRef, index?: number) => void;
   addElementToSelectedTarget: (type: ElementNodeType) => void;
-  addElementToHeaderSlot: (slot: HeaderSlotType, type: ElementNodeType) => void;
+  addElementToHeaderSlot: (slot: HeaderSlotType, type: ElementNodeType, index?: number) => void;
+  createContainerSectionWithElement: (type: ElementNodeType, insertPosition?: number) => void;
+  moveElement: (input: MoveElementInput) => void;
+  moveElementToHeaderSlot: (elementId: string, targetSlot: HeaderSlotType, index?: number) => void;
   moveHeaderElement: (elementId: string, toSlot: HeaderSlotType, targetIndex?: number) => void;
   removeElement: (elementId: string) => void;
-  reorderElements: (blockId: string, containerId: string | null, activeId: string, overId: string) => void;
+  reorderElements: (containerId: string, activeId: string, overId: string) => void;
+  reorderHeaderSlotElements: (slot: HeaderSlotType, activeId: string, overId: string) => void;
+  reorderSections: (activeId: string, overId: string) => void;
+  resetHeaderSlots: () => void;
   updateContainer: (blockId: string, containerId: string, update: ContainerUpdate) => void;
   updateElement: (elementId: string, update: ElementUpdate) => void;
   updateHeaderConfig: (update: Partial<HeaderConfig>) => void;
@@ -161,6 +202,8 @@ type EditorState = {
   loadCustomPalettes: () => void;
   setPaymentStatus: (status: ProjectPaymentStatus) => void;
   setPreviewMode: (mode: PreviewMode) => void;
+  undo: () => void;
+  redo: () => void;
   resetEditor: () => void;
   loadFromLocalStorage: () => void;
   saveToLocalStorage: () => void;
@@ -301,6 +344,21 @@ function moveArrayItem<TItem>(items: TItem[], fromIndex: number, toIndex: number
   return nextItems;
 }
 
+function clampInsertIndex(length: number, index?: number): number {
+  if (typeof index !== "number" || Number.isNaN(index)) {
+    return length;
+  }
+
+  return Math.max(0, Math.min(length, index));
+}
+
+function insertArrayItem<TItem>(items: TItem[], item: TItem, index?: number): TItem[] {
+  const nextItems = [...items];
+  nextItems.splice(clampInsertIndex(nextItems.length, index), 0, item);
+
+  return nextItems;
+}
+
 function refreshBlockElementIds(block: Block): Block {
   const idMap = new Map<string, string>();
   const containers = block.containers?.map((container) => refreshContainerIds(container, idMap));
@@ -390,9 +448,56 @@ function saveCustomPalettes(palettes: Palette[]) {
 const initialSite = createDefaultSiteData();
 const initialCurrentPage = getCurrentSitePage(initialSite, initialSite.pages[0]?.id ?? "home");
 const initialPage = sitePageToPageData(initialSite, initialCurrentPage);
+const HISTORY_LIMIT = 50;
 
 function cloneSite(site: SiteData): SiteData {
   return structuredClone(site);
+}
+
+function createHistorySnapshot(state: EditorState): EditorHistorySnapshot {
+  return {
+    currentPageId: state.currentPageId,
+    paymentStatus: state.paymentStatus,
+    previewMode: state.previewMode,
+    selectedBlockId: state.selectedBlockId,
+    selectedContainerId: state.selectedContainerId,
+    selectedElementId: state.selectedElementId,
+    selectedHeaderSlot: state.selectedHeaderSlot,
+    selectedInsertionTarget: state.selectedInsertionTarget
+      ? structuredClone(state.selectedInsertionTarget)
+      : null,
+    site: cloneSite(state.site),
+  };
+}
+
+function restoreHistorySnapshot(snapshot: EditorHistorySnapshot) {
+  return {
+    ...syncCurrentPageState(snapshot.site, snapshot.currentPageId, snapshot.selectedBlockId),
+    paymentStatus: snapshot.paymentStatus,
+    previewMode: snapshot.previewMode,
+    selectedBlockId: snapshot.selectedBlockId,
+    selectedContainerId: snapshot.selectedContainerId,
+    selectedElementId: snapshot.selectedElementId,
+    selectedHeaderSlot: snapshot.selectedHeaderSlot,
+    selectedInsertionTarget: snapshot.selectedInsertionTarget,
+  };
+}
+
+function pushHistory(state: EditorState, groupKey?: string) {
+  const now = Date.now();
+
+  if (groupKey && state.historyGroupKey === groupKey && now - state.historyGroupAt < 1000) {
+    return {
+      historyGroupAt: now,
+    };
+  }
+
+  return {
+    historyFuture: [],
+    historyGroupAt: now,
+    historyGroupKey: groupKey ?? null,
+    historyPast: [...state.historyPast, createHistorySnapshot(state)].slice(-HISTORY_LIMIT),
+  };
 }
 
 function createEditorSlice(
@@ -425,9 +530,30 @@ function replaceCurrentPageBlocks(state: EditorState, blocks: Block[], selectedB
     ...sitePage,
     blocks,
   }));
+  const nextSlice = syncCurrentPageState(site, state.currentPageId, selectedBlockId);
+  const selectedContainerId =
+    state.selectedContainerId && findContainerLocationInSite(site, state.selectedContainerId)
+      ? state.selectedContainerId
+      : null;
+  const selectedElementId =
+    state.selectedElementId && findElementLocationInSite(site, state.selectedElementId)
+      ? state.selectedElementId
+      : null;
+  const elementLocation = selectedElementId ? findElementLocationInSite(site, selectedElementId) : null;
+  const containerLocation = selectedContainerId
+    ? findContainerLocationInSite(site, selectedContainerId)
+    : null;
 
   return {
-    ...syncCurrentPageState(site, state.currentPageId, selectedBlockId),
+    ...nextSlice,
+    ...pushHistory(state),
+    selectedContainerId,
+    selectedElementId,
+    selectedHeaderSlot: state.selectedHeaderSlot,
+    selectedInsertionTarget:
+      (elementLocation && targetFromLocation(elementLocation)) ||
+      (containerLocation && targetFromLocation(containerLocation)) ||
+      (nextSlice.selectedBlockId ? { blockId: nextSlice.selectedBlockId, kind: "block" as const } : null),
     isDirty: true,
   };
 }
@@ -466,6 +592,263 @@ function flattenHeaderSlots(slots: HeaderSlots): ElementNode[] {
     ...(slots.right ?? []),
     ...(slots.mobile ?? []),
   ];
+}
+
+const headerSlotOrder: HeaderSlotType[] = ["left", "center", "right", "mobile"];
+
+function getHeaderSlots(site: SiteData): HeaderSlots {
+  const slots = site.globalSections?.header?.slots;
+
+  return {
+    left: [...(slots?.left ?? [])],
+    center: [...(slots?.center ?? [])],
+    right: [...(slots?.right ?? [])],
+    mobile: [...(slots?.mobile ?? [])],
+  };
+}
+
+function createDefaultHeaderSlotsForSite(site: SiteData): HeaderSlots {
+  const logo = createDefaultElement("logo");
+  const menu = createDefaultElement("menu");
+  const login = createDefaultElement("loginButton");
+  const cta = createDefaultElement("signupButton");
+
+  return {
+    left: [
+      {
+        ...logo,
+        props: {
+          ...logo.props,
+          href: "/",
+          label: site.brand.name,
+          logoType: "text",
+          text: site.brand.logoText ?? site.brand.name.slice(0, 2).toUpperCase(),
+        },
+      },
+    ],
+    center: [
+      {
+        ...menu,
+        props: {
+          ...menu.props,
+          items: site.navigation.items,
+        },
+      },
+    ],
+    right: [
+      {
+        ...login,
+        props: {
+          ...login.props,
+          href: "/login",
+          label: "로그인",
+        },
+      },
+      {
+        ...cta,
+        props: {
+          ...cta.props,
+          href: site.navigation.cta?.href ?? "/contact",
+          label: site.navigation.cta?.label ?? "문의하기",
+        },
+      },
+    ],
+    mobile: [],
+  };
+}
+
+function getFirstContainerId(block: Block): string | null {
+  return block.containers?.[0]?.id ?? null;
+}
+
+function targetFromLocation(location: LocationRef): ElementInsertionTarget | null {
+  switch (location.type) {
+    case "container":
+      return {
+        blockId: location.sectionId,
+        containerId: location.containerId,
+        kind: "block",
+      };
+    case "section":
+      return {
+        blockId: location.sectionId,
+        kind: "block",
+      };
+    case "headerSlot":
+      return {
+        kind: "headerSlot",
+        slot: location.slot,
+      };
+    case "page":
+      return null;
+  }
+}
+
+function findContainerLocationInTree(
+  container: ContainerNode,
+  pageId: string,
+  sectionId: string,
+  containerId: string,
+): LocationRef | null {
+  if (container.id === containerId) {
+    return {
+      containerId,
+      pageId,
+      sectionId,
+      type: "container",
+    };
+  }
+
+  for (const child of container.children) {
+    if ("children" in child) {
+      const location = findContainerLocationInTree(child, pageId, sectionId, containerId);
+
+      if (location) {
+        return location;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findContainerLocationInSite(site: SiteData, containerId: string): LocationRef | null {
+  for (const page of site.pages) {
+    for (const block of page.blocks) {
+      for (const container of block.containers ?? []) {
+        const location = findContainerLocationInTree(container, page.id, block.id, containerId);
+
+        if (location) {
+          return location;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function findElementLocationInContainer(
+  container: ContainerNode,
+  pageId: string,
+  sectionId: string,
+  elementId: string,
+): LocationRef | null {
+  for (const child of container.children) {
+    if ("children" in child) {
+      const location = findElementLocationInContainer(child, pageId, sectionId, elementId);
+
+      if (location) {
+        return location;
+      }
+
+      continue;
+    }
+
+    if (child.id === elementId) {
+      return {
+        containerId: container.id,
+        pageId,
+        sectionId,
+        type: "container",
+      };
+    }
+  }
+
+  return null;
+}
+
+function findElementLocationInBlock(block: Block, pageId: string, elementId: string): LocationRef | null {
+  if ((block.elements ?? []).some((element) => element.id === elementId)) {
+    return {
+      pageId,
+      sectionId: block.id,
+      type: "section",
+    };
+  }
+
+  for (const container of block.containers ?? []) {
+    const location = findElementLocationInContainer(container, pageId, block.id, elementId);
+
+    if (location) {
+      return location;
+    }
+  }
+
+  return null;
+}
+
+function findElementLocationInSite(site: SiteData, elementId: string): LocationRef | null {
+  const slots = getHeaderSlots(site);
+
+  for (const slot of headerSlotOrder) {
+    if ((slots[slot] ?? []).some((element) => element.id === elementId)) {
+      return {
+        slot,
+        type: "headerSlot",
+      };
+    }
+  }
+
+  for (const page of site.pages) {
+    for (const block of page.blocks) {
+      const location = findElementLocationInBlock(block, page.id, elementId);
+
+      if (location) {
+        return location;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findElementInTree(node: ElementTreeNode, elementId: string): ElementNode | null {
+  if (!("children" in node)) {
+    return node.id === elementId ? node : null;
+  }
+
+  for (const child of node.children) {
+    const element = findElementInTree(child, elementId);
+
+    if (element) {
+      return element;
+    }
+  }
+
+  return null;
+}
+
+function findElementInSite(site: SiteData, elementId: string): ElementNode | null {
+  const slots = getHeaderSlots(site);
+
+  for (const slot of headerSlotOrder) {
+    const element = (slots[slot] ?? []).find((slotElement) => slotElement.id === elementId);
+
+    if (element) {
+      return element;
+    }
+  }
+
+  for (const page of site.pages) {
+    for (const block of page.blocks) {
+      const rootElement = (block.elements ?? []).find((element) => element.id === elementId);
+
+      if (rootElement) {
+        return rootElement;
+      }
+
+      for (const container of block.containers ?? []) {
+        const element = findElementInTree(container, elementId);
+
+        if (element) {
+          return element;
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 function updateElementNode(element: ElementNode, update: ElementUpdate): ElementNode {
@@ -526,90 +909,25 @@ function removeElementFromBlock(block: Block, elementId: string): Block {
   } as Block;
 }
 
-function addElementToContainer(container: ContainerNode, containerId: string, element: ElementNode): ContainerNode {
+function insertElementIntoContainer(
+  container: ContainerNode,
+  containerId: string,
+  element: ElementNode,
+  index?: number,
+): ContainerNode {
   if (container.id === containerId) {
     return {
       ...container,
-      children: [...container.children, element],
+      children: insertArrayItem(container.children, element, index),
     };
   }
 
   return {
     ...container,
     children: container.children.map((child) =>
-      "children" in child ? addElementToContainer(child, containerId, element) : child,
+      "children" in child ? insertElementIntoContainer(child, containerId, element, index) : child,
     ),
   };
-}
-
-function addElementToBlock(block: Block, target: ElementInsertionTarget, element: ElementNode): Block {
-  if (target.kind !== "block" || target.blockId !== block.id) {
-    return block;
-  }
-
-  const shouldRenderAsElementTree = isLegacyContentBlock(block) ? "element-tree" : block.variant;
-
-  if (target.containerId) {
-    return {
-      ...block,
-      containers: block.containers?.map((container) =>
-        addElementToContainer(container, target.containerId ?? "", element),
-      ),
-      variant: shouldRenderAsElementTree,
-    } as Block;
-  }
-
-  if (block.type === "freeformSection") {
-    const layoutIndex = block.props.layouts.length;
-
-    return {
-      ...block,
-      elements: [...(block.elements ?? []), element],
-      props: {
-        ...block.props,
-        layouts: [
-          ...block.props.layouts,
-          {
-            breakpoint: "desktop",
-            elementId: element.id,
-            h: 120,
-            w: 280,
-            x: 80 + layoutIndex * 28,
-            y: 80 + layoutIndex * 28,
-            zIndex: layoutIndex + 1,
-          },
-        ],
-      },
-    };
-  }
-
-  if ((block.containers?.length ?? 0) > 0 && block.containers?.[0]) {
-    const firstContainerId = block.containers[0].id;
-
-    return {
-      ...block,
-      containers: block.containers.map((container) =>
-        addElementToContainer(container, firstContainerId, element),
-      ),
-      variant: shouldRenderAsElementTree,
-    } as Block;
-  }
-
-  return {
-    ...block,
-    elements: [...(block.elements ?? []), element],
-    variant: shouldRenderAsElementTree,
-  } as Block;
-}
-
-function isLegacyContentBlock(block: Block) {
-  return (
-    block.type !== "customSection" &&
-    block.type !== "containerSection" &&
-    block.type !== "gridSection" &&
-    block.type !== "columnsSection" &&
-    block.type !== "freeformSection"
-  );
 }
 
 function updateContainerInTree(
@@ -665,13 +983,59 @@ function reorderElementsInContainer(
   };
 }
 
+function removeElementFromHeaderSlots(slots: HeaderSlots, elementId: string): HeaderSlots {
+  return {
+    left: (slots.left ?? []).filter((element) => element.id !== elementId),
+    center: (slots.center ?? []).filter((element) => element.id !== elementId),
+    right: (slots.right ?? []).filter((element) => element.id !== elementId),
+    mobile: (slots.mobile ?? []).filter((element) => element.id !== elementId),
+  };
+}
+
+function removeElementFromEveryPage(site: SiteData, elementId: string): SiteData {
+  return normalizeSiteData({
+    ...site,
+    pages: site.pages.map((page) => ({
+      ...page,
+      blocks: page.blocks.map((block) => removeElementFromBlock(block, elementId)),
+    })),
+  });
+}
+
+function insertElementIntoSiteContainer(
+  site: SiteData,
+  location: Extract<LocationRef, { type: "container" }>,
+  element: ElementNode,
+  index?: number,
+): SiteData {
+  return updateSitePage(site, location.pageId, (sitePage) => ({
+    ...sitePage,
+    blocks: sitePage.blocks.map((block) =>
+      block.id === location.sectionId
+        ? ({
+            ...block,
+            containers: block.containers?.map((container) =>
+              insertElementIntoContainer(container, location.containerId, element, index),
+            ),
+          } as Block)
+        : block,
+    ),
+  }));
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   page: clonePage(initialPage),
   site: cloneSite(initialSite),
   currentPageId: initialCurrentPage.id,
   customPalettes: [],
+  historyFuture: [],
+  historyGroupAt: 0,
+  historyGroupKey: null,
+  historyPast: [],
   selectedBlockId: getInitialSelectedBlockId(initialPage),
+  selectedContainerId: null,
   selectedElementId: null,
+  selectedHeaderSlot: null,
   selectedInsertionTarget: getInitialSelectedBlockId(initialPage)
     ? { blockId: getInitialSelectedBlockId(initialPage) ?? "", kind: "block" }
     : null,
@@ -679,25 +1043,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   paymentStatus: "NONE",
   isDirty: false,
   setPage: (page) =>
-    set({
+    set((state) => ({
       ...syncCurrentPageState(pageDataToSiteData(page), page.id ?? "home", getInitialSelectedBlockId(page)),
+      ...pushHistory(state),
+      selectedContainerId: null,
       selectedElementId: null,
+      selectedHeaderSlot: null,
       selectedInsertionTarget: getInitialSelectedBlockId(page)
         ? { blockId: getInitialSelectedBlockId(page) ?? "", kind: "block" }
         : null,
       isDirty: true,
-    }),
+    })),
   setSite: (site) =>
     set(() => {
       const nextSlice = syncCurrentPageState(site, site.pages[0]?.id ?? "home", null);
 
       return {
         ...nextSlice,
+        ...pushHistory(state),
+        selectedContainerId: null,
         selectedElementId: null,
+        selectedHeaderSlot: null,
         selectedInsertionTarget: nextSlice.selectedBlockId
           ? { blockId: nextSlice.selectedBlockId, kind: "block" }
           : null,
-      isDirty: true,
+        isDirty: true,
       };
     }),
   updateSiteMeta: (partial) =>
@@ -717,6 +1087,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "site-meta"),
         isDirty: true,
       };
     }),
@@ -739,6 +1110,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "page-meta"),
         isDirty: true,
       };
     }),
@@ -761,6 +1133,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, nextPage.id, getInitialSelectedBlockId(sitePageToPageData(site, nextPage))),
+        ...pushHistory(state),
+        selectedContainerId: null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: getInitialSelectedBlockId(sitePageToPageData(site, nextPage))
+          ? { blockId: getInitialSelectedBlockId(sitePageToPageData(site, nextPage)) ?? "", kind: "block" }
+          : null,
         isDirty: true,
       };
     }),
@@ -785,6 +1164,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, fallbackPageId, state.selectedBlockId),
+        ...pushHistory(state),
+        selectedContainerId: null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: null,
         isDirty: true,
       };
     }),
@@ -818,6 +1202,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, duplicatedPage.id, getInitialSelectedBlockId(sitePageToPageData(site, duplicatedPage))),
+        ...pushHistory(state),
+        selectedContainerId: null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: getInitialSelectedBlockId(sitePageToPageData(site, duplicatedPage))
+          ? {
+              blockId: getInitialSelectedBlockId(sitePageToPageData(site, duplicatedPage)) ?? "",
+              kind: "block",
+            }
+          : null,
         isDirty: true,
       };
     }),
@@ -843,40 +1237,237 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(siteWithNavigation, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "page-update"),
         isDirty: true,
       };
     }),
   setCurrentPage: (id) =>
     set((state) => ({
       ...syncCurrentPageState(state.site, id, null),
+      selectedContainerId: null,
       selectedElementId: null,
+      selectedHeaderSlot: null,
       selectedInsertionTarget: null,
     })),
   selectBlock: (id) =>
-    set((state) => ({
-      selectedBlockId: normalizeSelectedBlockId(state.page, id),
-      selectedElementId: null,
-      selectedInsertionTarget: id ? { blockId: id, kind: "block" } : null,
-    })),
+    set((state) => {
+      const selectedBlockId = id && state.page.blocks.some((block) => block.id === id) ? id : null;
+
+      return {
+        selectedBlockId,
+        selectedContainerId: null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: selectedBlockId ? { blockId: selectedBlockId, kind: "block" } : null,
+      };
+    }),
+  selectContainer: (id) =>
+    set((state) => {
+      if (!id) {
+        const target = state.selectedBlockId ? { blockId: state.selectedBlockId, kind: "block" as const } : null;
+
+        return {
+          selectedContainerId: null,
+          selectedElementId: null,
+          selectedHeaderSlot: null,
+          selectedInsertionTarget: target,
+        };
+      }
+
+      const location = findContainerLocationInSite(state.site, id);
+
+      if (!location || location.type !== "container") {
+        return state;
+      }
+
+      return {
+        selectedBlockId: location.sectionId,
+        selectedContainerId: id,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: {
+          blockId: location.sectionId,
+          containerId: id,
+          kind: "block",
+        },
+      };
+    }),
   selectElement: (selection) =>
+    set((state) => {
+      if (!selection) {
+        const currentLocation = state.selectedContainerId
+          ? findContainerLocationInSite(state.site, state.selectedContainerId)
+          : state.selectedHeaderSlot
+            ? { slot: state.selectedHeaderSlot, type: "headerSlot" as const }
+            : state.selectedBlockId
+              ? { pageId: state.currentPageId, sectionId: state.selectedBlockId, type: "section" as const }
+              : null;
+
+        return {
+          selectedElementId: null,
+          selectedInsertionTarget: currentLocation ? targetFromLocation(currentLocation) : null,
+        };
+      }
+
+      const elementId = typeof selection === "string" ? selection : selection.elementId;
+
+      if (!elementId) {
+        const target =
+          typeof selection === "string"
+            ? null
+            : selection.kind === "headerSlot"
+              ? { kind: "headerSlot" as const, slot: selection.slot }
+              : { blockId: selection.blockId, containerId: selection.containerId, kind: "block" as const };
+
+        return {
+          selectedElementId: null,
+          selectedInsertionTarget: target,
+        };
+      }
+
+      const location = findElementLocationInSite(state.site, elementId);
+      const fallbackTarget =
+        typeof selection === "string"
+          ? null
+          : selection.kind === "headerSlot"
+            ? { kind: "headerSlot" as const, slot: selection.slot }
+            : { blockId: selection.blockId, containerId: selection.containerId, kind: "block" as const };
+      const target = location ? targetFromLocation(location) : fallbackTarget;
+
+      if (location?.type === "headerSlot") {
+        return {
+          selectedBlockId: null,
+          selectedContainerId: null,
+          selectedElementId: elementId,
+          selectedHeaderSlot: location.slot,
+          selectedInsertionTarget: target,
+        };
+      }
+
+      if (location?.type === "container") {
+        return {
+          selectedBlockId: location.sectionId,
+          selectedContainerId: location.containerId,
+          selectedElementId: elementId,
+          selectedHeaderSlot: null,
+          selectedInsertionTarget: target,
+        };
+      }
+
+      if (location?.type === "section") {
+        return {
+          selectedBlockId: location.sectionId,
+          selectedContainerId: null,
+          selectedElementId: elementId,
+          selectedHeaderSlot: null,
+          selectedInsertionTarget: target,
+        };
+      }
+
+      return {
+        selectedElementId: elementId,
+        selectedInsertionTarget: target,
+      };
+    }),
+  setSelectedHeaderSlot: (slot) =>
     set({
-      selectedElementId: selection?.elementId ?? null,
-      selectedInsertionTarget: selection
-        ? selection.kind === "headerSlot"
-          ? { kind: "headerSlot", slot: selection.slot }
-          : { blockId: selection.blockId, containerId: selection.containerId, kind: "block" }
-        : null,
+      selectedBlockId: null,
+      selectedContainerId: null,
+      selectedElementId: null,
+      selectedHeaderSlot: slot,
+      selectedInsertionTarget: slot ? { kind: "headerSlot", slot } : null,
     }),
   selectInsertionTarget: (target) =>
-    set({
-      selectedInsertionTarget: target,
+    set(() => {
+      if (!target) {
+        return {
+          selectedBlockId: null,
+          selectedContainerId: null,
+          selectedElementId: null,
+          selectedHeaderSlot: null,
+          selectedInsertionTarget: null,
+        };
+      }
+
+      if (target.kind === "headerSlot") {
+        return {
+          selectedBlockId: null,
+          selectedContainerId: null,
+          selectedElementId: null,
+          selectedHeaderSlot: target.slot,
+          selectedInsertionTarget: target,
+        };
+      }
+
+      return {
+        selectedBlockId: target.blockId,
+        selectedContainerId: target.containerId ?? null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: target,
+      };
     }),
+  clearSelection: () =>
+    set({
+      selectedBlockId: null,
+      selectedContainerId: null,
+      selectedElementId: null,
+      selectedHeaderSlot: null,
+      selectedInsertionTarget: null,
+    }),
+  findContainerLocation: (containerId) => findContainerLocationInSite(get().site, containerId),
+  findElementLocation: (elementId) => findElementLocationInSite(get().site, elementId),
+  getSelectedLocation: () => {
+    const state = get();
+
+    if (state.selectedElementId) {
+      const location = findElementLocationInSite(state.site, state.selectedElementId);
+
+      if (location) {
+        return location;
+      }
+    }
+
+    if (state.selectedContainerId) {
+      const location = findContainerLocationInSite(state.site, state.selectedContainerId);
+
+      if (location) {
+        return location;
+      }
+    }
+
+    if (state.selectedBlockId) {
+      return {
+        pageId: state.currentPageId,
+        sectionId: state.selectedBlockId,
+        type: "section",
+      };
+    }
+
+    if (state.selectedHeaderSlot) {
+      return {
+        slot: state.selectedHeaderSlot,
+        type: "headerSlot",
+      };
+    }
+
+    return {
+      pageId: state.currentPageId,
+      type: "page",
+    };
+  },
   addBlock: (type) => get().addBlockToCurrentPage(type),
   addBlockToCurrentPage: (type) =>
     set((state) => {
       const block = createDefaultBlock(type);
 
       return replaceCurrentPageBlocks(state, [...state.page.blocks, block], block.id);
+    }),
+  insertBlockAt: (type, index) =>
+    set((state) => {
+      const block = createDefaultBlock(type);
+
+      return replaceCurrentPageBlocks(state, insertArrayItem(state.page.blocks, block, index), block.id);
     }),
   removeBlock: (id) =>
     set((state) => {
@@ -906,54 +1497,208 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         id,
       ),
     ),
-  addElementToSelectedTarget: (type) =>
+  addElementToContainer: (containerId, type, index) =>
     set((state) => {
-      const element = createDefaultElement(type);
-      const target =
-        state.selectedInsertionTarget ??
-        (state.selectedBlockId ? { blockId: state.selectedBlockId, kind: "block" as const } : null);
+      const location = findContainerLocationInSite(state.site, containerId);
 
-      if (!target) {
+      if (!location || location.type !== "container") {
         return state;
       }
 
-      if (target.kind === "headerSlot") {
-        const site = updateHeaderSlots(state.site, (slots) => ({
-          ...slots,
-          [target.slot]: [...(slots[target.slot] ?? []), element],
-        }));
-
-        return {
-          ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
-          selectedElementId: element.id,
-          selectedInsertionTarget: target,
-          isDirty: true,
-        };
-      }
-
-      const blocks = state.page.blocks.map((block) => addElementToBlock(block, target, element));
+      const element = createDefaultElement(type);
+      const site = insertElementIntoSiteContainer(state.site, location, element, index);
 
       return {
-        ...replaceCurrentPageBlocks(state, blocks, target.blockId),
+        ...syncCurrentPageState(site, state.currentPageId, location.sectionId),
+        ...pushHistory(state),
+        selectedContainerId: containerId,
         selectedElementId: element.id,
-        selectedInsertionTarget: target,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: {
+          blockId: location.sectionId,
+          containerId,
+          kind: "block",
+        },
+        isDirty: true,
       };
     }),
-  addElementToHeaderSlot: (slot, type) =>
+  addElementToLocation: (type, location, index) => {
+    if (location.type === "headerSlot") {
+      get().addElementToHeaderSlot(location.slot, type, index);
+      return;
+    }
+
+    if (location.type === "container") {
+      get().addElementToContainer(location.containerId, type, index);
+      return;
+    }
+
+    if (location.type === "section") {
+      const page = get().site.pages.find((sitePage) => sitePage.id === location.pageId);
+      const block = page?.blocks.find((pageBlock) => pageBlock.id === location.sectionId);
+      const containerId = block ? getFirstContainerId(block) : null;
+
+      if (containerId) {
+        get().addElementToContainer(containerId, type, index);
+        return;
+      }
+
+      get().createContainerSectionWithElement(type);
+      return;
+    }
+
+    get().createContainerSectionWithElement(type, index);
+  },
+  addElementToSelectedTarget: (type) => {
+    const state = get();
+
+    if (state.selectedHeaderSlot) {
+      state.addElementToHeaderSlot(state.selectedHeaderSlot, type);
+      return;
+    }
+
+    if (state.selectedContainerId) {
+      state.addElementToContainer(state.selectedContainerId, type);
+      return;
+    }
+
+    if (state.selectedBlockId) {
+      const block = state.page.blocks.find((pageBlock) => pageBlock.id === state.selectedBlockId);
+      const containerId = block ? getFirstContainerId(block) : null;
+
+      if (containerId) {
+        state.addElementToContainer(containerId, type);
+        return;
+      }
+    }
+
+    const location = state.getSelectedLocation();
+
+    if (location?.type === "headerSlot" || location?.type === "container") {
+      state.addElementToLocation(type, location);
+      return;
+    }
+
+    if (location?.type === "section") {
+      const page = state.site.pages.find((sitePage) => sitePage.id === location.pageId);
+      const block = page?.blocks.find((pageBlock) => pageBlock.id === location.sectionId);
+      const containerId = block ? getFirstContainerId(block) : null;
+
+      if (containerId) {
+        state.addElementToContainer(containerId, type);
+        return;
+      }
+    }
+
+    get().createContainerSectionWithElement(type);
+  },
+  addElementToHeaderSlot: (slot, type, index) =>
     set((state) => {
       const element = createDefaultElement(type);
       const site = updateHeaderSlots(state.site, (slots) => ({
         ...slots,
-        [slot]: [...(slots[slot] ?? []), element],
+        [slot]: insertArrayItem(slots[slot] ?? [], element, index),
       }));
 
       return {
-        ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...syncCurrentPageState(site, state.currentPageId, null),
+        ...pushHistory(state),
+        selectedBlockId: null,
+        selectedContainerId: null,
         selectedElementId: element.id,
+        selectedHeaderSlot: slot,
         selectedInsertionTarget: { kind: "headerSlot", slot },
         isDirty: true,
       };
     }),
+  createContainerSectionWithElement: (type, insertPosition) =>
+    set((state) => {
+      const element = createDefaultElement(type);
+      const block = createDefaultBlock("containerSection") as Extract<Block, { type: "containerSection" }>;
+      const baseContainer = block.containers?.[0] ?? createDefaultContainer("stack");
+      const container: ContainerNode = {
+        ...baseContainer,
+        children: [element],
+      };
+      const nextBlock: Extract<Block, { type: "containerSection" }> = {
+        ...block,
+        containers: [container],
+        props: {
+          ...block.props,
+          subtitle: "",
+          title: "새 섹션",
+        },
+        variant: "stack",
+      };
+      const blocks = insertArrayItem(state.page.blocks, nextBlock, insertPosition);
+
+      return {
+        ...replaceCurrentPageBlocks(state, blocks, nextBlock.id),
+        selectedContainerId: container.id,
+        selectedElementId: element.id,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: {
+          blockId: nextBlock.id,
+          containerId: container.id,
+          kind: "block",
+        },
+      };
+    }),
+  moveElement: ({ elementId, index, to }) =>
+    set((state) => {
+      const movingElement = findElementInSite(state.site, elementId);
+
+      if (!movingElement || (to.type !== "container" && to.type !== "headerSlot")) {
+        return state;
+      }
+
+      const siteWithoutHeaderElement = updateHeaderSlots(state.site, (slots) =>
+        removeElementFromHeaderSlots(slots, elementId),
+      );
+      const siteWithoutElement = removeElementFromEveryPage(siteWithoutHeaderElement, elementId);
+
+      if (to.type === "headerSlot") {
+        const site = updateHeaderSlots(siteWithoutElement, (slots) => ({
+          ...slots,
+          [to.slot]: insertArrayItem(slots[to.slot] ?? [], movingElement, index),
+        }));
+
+      return {
+        ...syncCurrentPageState(site, state.currentPageId, null),
+        ...pushHistory(state),
+        selectedBlockId: null,
+          selectedContainerId: null,
+          selectedElementId: elementId,
+          selectedHeaderSlot: to.slot,
+          selectedInsertionTarget: { kind: "headerSlot", slot: to.slot },
+          isDirty: true,
+        };
+      }
+
+      const destination = findContainerLocationInSite(siteWithoutElement, to.containerId);
+
+      if (!destination || destination.type !== "container") {
+        return state;
+      }
+
+      const site = insertElementIntoSiteContainer(siteWithoutElement, destination, movingElement, index);
+
+      return {
+        ...syncCurrentPageState(site, state.currentPageId, destination.sectionId),
+        ...pushHistory(state),
+        selectedContainerId: destination.containerId,
+        selectedElementId: elementId,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: {
+          blockId: destination.sectionId,
+          containerId: destination.containerId,
+          kind: "block",
+        },
+        isDirty: true,
+      };
+    }),
+  moveElementToHeaderSlot: (elementId, targetSlot, index) =>
+    get().moveHeaderElement(elementId, targetSlot, index),
   moveHeaderElement: (elementId, toSlot, targetIndex) =>
     set((state) => {
       const site = updateHeaderSlots(state.site, (slots) => {
@@ -996,8 +1741,44 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state),
+        selectedBlockId: null,
+        selectedContainerId: null,
         selectedElementId: elementId,
+        selectedHeaderSlot: toSlot,
         selectedInsertionTarget: { kind: "headerSlot", slot: toSlot },
+        isDirty: true,
+      };
+    }),
+  reorderHeaderSlotElements: (slot, activeId, overId) =>
+    set((state) => {
+      if (activeId === overId) {
+        return state;
+      }
+
+      const site = updateHeaderSlots(state.site, (slots) => {
+        const elements = slots[slot] ?? [];
+        const activeIndex = elements.findIndex((element) => element.id === activeId);
+        const overIndex = elements.findIndex((element) => element.id === overId);
+
+        if (activeIndex === -1 || overIndex === -1) {
+          return slots;
+        }
+
+        return {
+          ...slots,
+          [slot]: moveArrayItem(elements, activeIndex, overIndex),
+        };
+      });
+
+      return {
+        ...syncCurrentPageState(site, state.currentPageId, null),
+        ...pushHistory(state),
+        selectedBlockId: null,
+        selectedContainerId: null,
+        selectedElementId: activeId,
+        selectedHeaderSlot: slot,
+        selectedInsertionTarget: { kind: "headerSlot", slot },
         isDirty: true,
       };
     }),
@@ -1016,34 +1797,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state),
+        selectedContainerId:
+          state.selectedContainerId && findContainerLocationInSite(site, state.selectedContainerId)
+            ? state.selectedContainerId
+            : null,
         selectedElementId: state.selectedElementId === elementId ? null : state.selectedElementId,
+        selectedHeaderSlot: state.selectedElementId === elementId ? null : state.selectedHeaderSlot,
         isDirty: true,
       };
     }),
-  reorderElements: (blockId, containerId, activeId, overId) =>
+  reorderElements: (containerId, activeId, overId) =>
     set((state) => {
       if (activeId === overId) {
         return state;
       }
 
+      const location = findContainerLocationInSite(state.site, containerId);
+
+      if (!location || location.type !== "container") {
+        return state;
+      }
+
       const blocks = state.page.blocks.map((block) => {
-        if (block.id !== blockId) {
+        if (block.id !== location.sectionId) {
           return block;
-        }
-
-        if (!containerId) {
-          const elements = block.elements ?? [];
-          const activeIndex = elements.findIndex((element) => element.id === activeId);
-          const overIndex = elements.findIndex((element) => element.id === overId);
-
-          if (activeIndex === -1 || overIndex === -1) {
-            return block;
-          }
-
-          return {
-            ...block,
-            elements: moveArrayItem(elements, activeIndex, overIndex),
-          } as Block;
         }
 
         return {
@@ -1054,7 +1832,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         } as Block;
       });
 
-      return replaceCurrentPageBlocks(state, blocks, blockId);
+      return {
+        ...replaceCurrentPageBlocks(state, blocks, location.sectionId),
+        selectedContainerId: containerId,
+        selectedElementId: activeId,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: {
+          blockId: location.sectionId,
+          containerId,
+          kind: "block",
+        },
+      };
     }),
   updateContainer: (blockId, containerId, update) =>
     set((state) => {
@@ -1094,6 +1882,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, `element:${elementId}`),
         selectedElementId: elementId,
         isDirty: true,
       };
@@ -1121,6 +1910,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "header-config"),
         isDirty: true,
       };
     }),
@@ -1163,6 +1953,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return replaceCurrentPageBlocks(state, moveItem(state.page.blocks, activeIndex, overIndex), activeId);
     }),
+  reorderSections: (activeId, overId) => get().reorderBlocks(activeId, overId),
+  resetHeaderSlots: () =>
+    set((state) => {
+      const slots = createDefaultHeaderSlotsForSite(state.site);
+      const site = updateHeaderSlots(state.site, () => slots);
+
+      return {
+        ...syncCurrentPageState(site, state.currentPageId, null),
+        ...pushHistory(state),
+        selectedBlockId: null,
+        selectedContainerId: null,
+        selectedElementId: slots.left?.[0]?.id ?? null,
+        selectedHeaderSlot: "left",
+        selectedInsertionTarget: { kind: "headerSlot", slot: "left" },
+        isDirty: true,
+      };
+    }),
   setTheme: (theme) =>
     set((state) => {
       const site = normalizeSiteData({
@@ -1172,6 +1979,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "theme"),
         isDirty: true,
       };
     }),
@@ -1189,6 +1997,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "palette"),
         isDirty: true,
       };
     }),
@@ -1201,6 +2010,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state),
         isDirty: true,
       };
     }),
@@ -1214,6 +2024,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return {
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "navigation"),
         isDirty: true,
       };
     }),
@@ -1330,7 +2141,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   resetEditor: () =>
     set({
       ...syncCurrentPageState(initialSite, initialCurrentPage.id, getInitialSelectedBlockId(initialPage)),
+      selectedContainerId: null,
       selectedElementId: null,
+      selectedHeaderSlot: null,
       selectedInsertionTarget: getInitialSelectedBlockId(initialPage)
         ? { blockId: getInitialSelectedBlockId(initialPage) ?? "", kind: "block" }
         : null,
@@ -1370,7 +2183,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     set({
       ...nextSlice,
+      selectedContainerId: null,
       selectedElementId: null,
+      selectedHeaderSlot: null,
       selectedInsertionTarget: nextSlice.selectedBlockId
         ? { blockId: nextSlice.selectedBlockId, kind: "block" }
         : null,

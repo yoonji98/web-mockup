@@ -1,6 +1,7 @@
 import type { MouseEvent, ReactNode } from "react";
 
 import { BlockRenderer } from "@/components/blocks/BlockRenderer";
+import type { EditorSectionDndContext } from "@/components/editor/dnd-data";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { getThemeShadow, getThemeSpacing } from "@/lib/style-pack";
@@ -8,12 +9,13 @@ import type { Block, SiteData, SitePage } from "@/types/page";
 
 type SiteRendererProps = {
   currentPage: SitePage;
+  editorDnd?: Pick<EditorSectionDndContext, "pageId">;
   onElementClick?: (block: Block, elementId: string, event: MouseEvent<HTMLElement>) => void;
   renderBlock?: (block: Block, renderedBlock: ReactNode, index: number) => ReactNode;
   site: SiteData;
 };
 
-export function SiteRenderer({ currentPage, onElementClick, renderBlock, site }: SiteRendererProps) {
+export function SiteRenderer({ currentPage, editorDnd, onElementClick, renderBlock, site }: SiteRendererProps) {
   const colors = site.theme.colors;
   const shadow = getThemeShadow(site.theme);
   const spacing = getThemeSpacing(site.theme);
@@ -36,6 +38,7 @@ export function SiteRenderer({ currentPage, onElementClick, renderBlock, site }:
               <BlockRenderer
                 block={block}
                 colors={colors}
+                editorDnd={editorDnd ? { pageId: editorDnd.pageId, sectionId: block.id } : undefined}
                 radius={site.theme.radius}
                 shadow={shadow}
                 spacing={spacing}

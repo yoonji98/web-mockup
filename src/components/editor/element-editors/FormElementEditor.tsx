@@ -14,8 +14,8 @@ export function FormElementEditor({ element, updateProps }: ElementEditorProps) 
     <div className="grid gap-3">
       <Field label="Submit label">
         <Input
-          onChange={(event) => updateProps({ label: event.target.value })}
-          value={propString(props.label)}
+          onChange={(event) => updateProps({ label: event.target.value, submitLabel: event.target.value })}
+          value={propString(props.submitLabel) || propString(props.label)}
         />
       </Field>
 

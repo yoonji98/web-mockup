@@ -10,13 +10,9 @@ export type ElementLibraryCategory = {
 };
 
 export const elementLibraryCategories: ElementLibraryCategory[] = [
-  { name: "Brand", items: ["logo", "badge"] },
-  { name: "Text", items: ["heading", "text", "link"] },
-  { name: "Action", items: ["button", "loginButton", "signupButton"] },
-  { name: "Media", items: ["image", "icon"] },
-  { name: "Navigation", items: ["menu", "socialLinks"] },
-  { name: "Form", items: ["form", "input", "textarea"] },
-  { name: "Layout", items: ["divider", "spacer", "card"] },
+  { name: "Basic", items: ["heading", "text", "button", "image"] },
+  { name: "Brand", items: ["logo", "menu", "loginButton", "signupButton"] },
+  { name: "Content", items: ["card", "form", "divider", "spacer"] },
 ];
 
 export const elementLabels: Record<ElementNodeType, string> = {
@@ -45,27 +41,28 @@ export const elementDefaults: Record<ElementNodeType, ElementDefault> = {
     type: "logo",
     props: {
       href: "/",
-      label: "Brand",
-      text: "BR",
+      label: "브랜드",
+      logoType: "text",
+      text: "Brand",
     },
   },
   text: {
     type: "text",
     props: {
-      text: "본문 텍스트를 입력하세요.",
+      text: "여기에 설명 문구를 입력하세요.",
     },
   },
   heading: {
     type: "heading",
     props: {
       level: 2,
-      text: "새 제목",
+      text: "새로운 제목",
     },
   },
   button: {
     type: "button",
     props: {
-      href: "#lead",
+      href: "#",
       label: "버튼",
       size: "md",
       variant: "primary",
@@ -76,6 +73,7 @@ export const elementDefaults: Record<ElementNodeType, ElementDefault> = {
     props: {
       alt: "이미지",
       label: "이미지 영역",
+      placeholderText: "이미지 영역",
       src: "",
     },
   },
@@ -111,6 +109,7 @@ export const elementDefaults: Record<ElementNodeType, ElementDefault> = {
   card: {
     type: "card",
     props: {
+      buttonLabel: "자세히 보기",
       description: "카드 설명을 입력하세요.",
       title: "카드 제목",
     },
@@ -119,6 +118,7 @@ export const elementDefaults: Record<ElementNodeType, ElementDefault> = {
     type: "form",
     props: {
       label: "문의 보내기",
+      submitLabel: "문의 보내기",
       fields: [
         { name: "name", placeholder: "이름", type: "text" },
         { name: "email", placeholder: "이메일", type: "email" },

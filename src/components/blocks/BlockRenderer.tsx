@@ -13,6 +13,7 @@ import { TestimonialsBlock } from "@/components/blocks/TestimonialsBlock";
 import { ContactBlock } from "@/components/blocks/ContactBlock";
 import { ElementBlockRenderer } from "@/components/elements/ElementRenderer";
 import { FreeformRenderer } from "@/components/layout/FreeformRenderer";
+import type { EditorSectionDndContext } from "@/components/editor/dnd-data";
 import type { Block, PageData, StyleShadow, StyleSpacing, ThemeColors } from "@/types/page";
 
 type BlockRendererProps = {
@@ -21,10 +22,11 @@ type BlockRendererProps = {
   radius: PageData["theme"]["radius"];
   shadow: StyleShadow;
   spacing: StyleSpacing;
+  editorDnd?: EditorSectionDndContext;
   onElementClick?: (elementId: string, event: MouseEvent<HTMLElement>) => void;
 };
 
-export function BlockRenderer({ block, colors, onElementClick, radius, shadow, spacing }: BlockRendererProps) {
+export function BlockRenderer({ block, colors, editorDnd, onElementClick, radius, shadow, spacing }: BlockRendererProps) {
   if (block.type === "freeformSection") {
     return (
       <section
@@ -59,6 +61,7 @@ export function BlockRenderer({ block, colors, onElementClick, radius, shadow, s
       <ElementBlockRenderer
         colors={colors}
         containers={block.containers}
+        editorDnd={editorDnd}
         elements={block.elements}
         onElementClick={onElementClick}
         radius={radius}

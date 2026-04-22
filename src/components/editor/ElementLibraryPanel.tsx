@@ -1,5 +1,7 @@
 "use client";
 
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { Plus } from "lucide-react";
 
 import {
@@ -11,11 +13,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useEditorStore } from "@/store/editor-store";
 import type { ElementNodeType } from "@/types/elements";
 
+import { getLibraryElementDragId } from "./dnd-data";
+
 export function ElementLibraryPanel() {
   const addElementToSelectedTarget = useEditorStore((state) => state.addElementToSelectedTarget);
   const selectedBlockId = useEditorStore((state) => state.selectedBlockId);
+  const selectedContainerId = useEditorStore((state) => state.selectedContainerId);
+  const selectedHeaderSlot = useEditorStore((state) => state.selectedHeaderSlot);
   const selectedInsertionTarget = useEditorStore((state) => state.selectedInsertionTarget);
-  const hasTarget = Boolean(selectedInsertionTarget || selectedBlockId);
+  const hasTarget = Boolean(selectedHeaderSlot || selectedContainerId || selectedInsertionTarget || selectedBlockId);
 
   return (
     <Card>
@@ -25,8 +31,8 @@ export function ElementLibraryPanel() {
       </CardHeader>
       <CardContent className="grid gap-4">
         {!hasTarget ? (
-          <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-700">
-            캔버스에서 블록을 선택하거나 Header 슬롯을 선택하세요.
+          <p className="rounded-md bg-slate-50 p-3 text-xs font-semibold text-slate-500">
+            선택된 위치가 없으면 새 컨테이너 섹션에 요소가 추가됩니다.
           </p>
         ) : null}
 
@@ -38,7 +44,6 @@ export function ElementLibraryPanel() {
             <div className="grid grid-cols-2 gap-2">
               {category.items.map((type) => (
                 <ElementButton
-                  disabled={!hasTarget}
                   key={type}
                   onClick={() => addElementToSelectedTarget(type)}
                   type={type}
@@ -53,23 +58,36 @@ export function ElementLibraryPanel() {
 }
 
 function ElementButton({
-  disabled,
   onClick,
   type,
 }: {
-  disabled: boolean;
   onClick: () => void;
   type: ElementNodeType;
 }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: getLibraryElementDragId(type),
+    data: {
+      dragType: "libraryElement",
+      elementType: type,
+    },
+  });
+  const style = {
+    opacity: isDragging ? 0.55 : 1,
+    transform: CSS.Translate.toString(transform),
+  };
+
   return (
-    <Button
-      className="h-auto justify-start px-3 py-2 text-left"
-      disabled={disabled}
-      onClick={onClick}
-      variant="outline"
-    >
-      <Plus size={14} />
-      <span className="min-w-0 truncate text-xs">{elementLabels[type]}</span>
-    </Button>
+    <div ref={setNodeRef} style={style}>
+      <Button
+        className="h-auto w-full cursor-grab justify-start px-3 py-2 text-left active:cursor-grabbing"
+        onClick={onClick}
+        variant="outline"
+        {...attributes}
+        {...listeners}
+      >
+        <Plus size={14} />
+        <span className="min-w-0 truncate text-xs">{elementLabels[type]}</span>
+      </Button>
+    </div>
   );
 }

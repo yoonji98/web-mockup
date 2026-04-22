@@ -13,6 +13,7 @@ import { MenuElement } from "@/components/elements/MenuElement";
 import { SocialLinksElement } from "@/components/elements/SocialLinksElement";
 import { SpacerElement } from "@/components/elements/SpacerElement";
 import { TextElement } from "@/components/elements/TextElement";
+import type { EditorSectionDndContext } from "@/components/editor/dnd-data";
 import {
   elementRadiusClassName,
   getString,
@@ -26,6 +27,7 @@ import type { PageData, ThemeColors } from "@/types/page";
 type ElementBlockRendererProps = {
   colors: ThemeColors;
   containers?: ContainerNode[];
+  editorDnd?: EditorSectionDndContext;
   elements?: ElementNode[];
   onElementClick?: (elementId: string, event: MouseEvent<HTMLElement>) => void;
   radius: PageData["theme"]["radius"];
@@ -33,6 +35,7 @@ type ElementBlockRendererProps = {
 
 export type ElementRendererProps = {
   colors: ThemeColors;
+  editorDnd?: EditorSectionDndContext;
   node: ElementTreeNode;
   onElementClick?: (elementId: string, event: MouseEvent<HTMLElement>) => void;
   radius: PageData["theme"]["radius"];
@@ -41,6 +44,7 @@ export type ElementRendererProps = {
 export function ElementBlockRenderer({
   colors,
   containers,
+  editorDnd,
   elements,
   onElementClick,
   radius,
@@ -58,6 +62,7 @@ export function ElementBlockRenderer({
         {nodes.map((node) => (
           <ElementRenderer
             colors={colors}
+            editorDnd={editorDnd}
             key={node.id}
             node={node}
             onElementClick={onElementClick}
@@ -69,11 +74,12 @@ export function ElementBlockRenderer({
   );
 }
 
-export function ElementRenderer({ colors, node, onElementClick, radius }: ElementRendererProps) {
+export function ElementRenderer({ colors, editorDnd, node, onElementClick, radius }: ElementRendererProps) {
   if (isContainerNode(node)) {
     return (
       <ContainerRenderer
         colors={colors}
+        editorDnd={editorDnd}
         node={node}
         onElementClick={onElementClick}
         radius={radius}

@@ -28,7 +28,7 @@ export function FormElement({ colors, node, radius }: ElementComponentProps) {
         style={{ backgroundColor: colors.primary }}
         type="button"
       >
-        {getString(props.label) || "Submit"}
+        {getString(props.submitLabel) || getString(props.label) || "Submit"}
       </button>
     </form>
   );

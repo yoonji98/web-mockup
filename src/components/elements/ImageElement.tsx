@@ -11,6 +11,7 @@ export function ImageElement({ colors, node, radius }: ElementComponentProps) {
   const style = toCssStyle(node.style);
   const src = getString(props.src) || getString(props.imageUrl);
   const alt = getString(props.alt) || getString(props.label) || "Image";
+  const placeholderText = getString(props.placeholderText) || getString(props.label) || alt;
 
   if (src) {
     return (
@@ -35,7 +36,7 @@ export function ImageElement({ colors, node, radius }: ElementComponentProps) {
         color: style.color ?? colors.mutedText,
       }}
     >
-      {getString(props.label) || alt}
+      {placeholderText}
     </div>
   );
 }
