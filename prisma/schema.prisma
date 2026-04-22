@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProjectStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum PaymentStatus {
+  NONE
+  PAID
+}
+
+enum PaymentProvider {
+  TOSS
+  STRIPE
+}
+
+enum PaletteType {
+  SYSTEM
+  AI
+  CUSTOM
+}
+
+model Project {
+  id            String        @id @default(cuid())
+  ownerEmail    String?
+  title         String
+  slug          String?       @unique
+  pageJson      Json
+  status        ProjectStatus @default(DRAFT)
+  paymentStatus PaymentStatus @default(NONE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  publishedAt   DateTime?
+  payments      Payment[]
+}
+
+model Palette {
+  id         String      @id @default(cuid())
+  ownerEmail String?
+  name       String
+  type       PaletteType
+  moodTags   Json
+  colors     Json
+  createdAt  DateTime    @default(now())
+}
+
+model Payment {
+  id                 String          @id @default(cuid())
+  projectId          String
+  project            Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  provider           PaymentProvider
+  amount             Int
+  currency           String
+  status             String
+  externalPaymentKey String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+}
