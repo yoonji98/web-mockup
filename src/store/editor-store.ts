@@ -2055,6 +2055,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         customPalettes,
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "palette"),
         isDirty: true,
       };
     }),
@@ -2085,6 +2086,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         customPalettes,
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...pushHistory(state, "palette"),
         isDirty: true,
       };
     }),
@@ -2107,6 +2109,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         customPalettes,
         ...syncCurrentPageState(site, state.currentPageId, state.selectedBlockId),
+        ...(isCurrentPalette ? pushHistory(state, "palette") : {}),
         isDirty: isCurrentPalette ? true : state.isDirty,
       };
     }),
