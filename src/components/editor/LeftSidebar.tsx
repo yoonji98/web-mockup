@@ -17,7 +17,9 @@ import {
 
 import { AISiteWizard } from "@/components/editor/AISiteWizard";
 import { ElementLibraryPanel } from "@/components/editor/ElementLibraryPanel";
+import { FeatureKitPanel } from "@/components/editor/FeatureKitPanel";
 import { HeaderBuilderPanel } from "@/components/editor/HeaderBuilderPanel";
+import { LayerTreePanel } from "@/components/editor/LayerTreePanel";
 import { NavigationPanel } from "@/components/editor/NavigationPanel";
 import { PagesPanel } from "@/components/editor/PagesPanel";
 import { SiteTemplateGallery } from "@/components/editor/SiteTemplateGallery";
@@ -34,6 +36,8 @@ const blockLabels: Record<BlockType, string> = {
   about: "About",
   services: "Services",
   portfolio: "Portfolio",
+  collectionList: "Collection List",
+  collectionDetail: "Collection Detail",
   testimonials: "Testimonials",
   pricing: "Pricing",
   faq: "FAQ",
@@ -53,6 +57,8 @@ const blockDescriptions: Record<BlockType, string> = {
   about: "브랜드 설명",
   services: "서비스",
   portfolio: "작업 사례",
+  collectionList: "데이터 목록",
+  collectionDetail: "데이터 상세",
   testimonials: "후기",
   pricing: "요금제",
   faq: "질문 답변",
@@ -72,6 +78,8 @@ const blockIcons: Record<BlockType, typeof PanelTop> = {
   about: GalleryHorizontal,
   services: BriefcaseBusiness,
   portfolio: Images,
+  collectionList: Rows3,
+  collectionDetail: FileQuestion,
   testimonials: MessageSquareQuote,
   pricing: BadgeDollarSign,
   faq: FileQuestion,
@@ -91,16 +99,18 @@ export function LeftSidebar() {
   return (
     <aside className="h-full overflow-auto border-r border-slate-200/80 bg-slate-50/80 p-4">
       <Tabs defaultValue="pages">
-        <TabsList className="grid grid-cols-5">
+        <TabsList className="grid grid-cols-6">
           <TabsTrigger value="pages">Pages</TabsTrigger>
           <TabsTrigger value="blocks">Blocks</TabsTrigger>
           <TabsTrigger value="elements">Elements</TabsTrigger>
+          <TabsTrigger value="layers">Layers</TabsTrigger>
           <TabsTrigger value="header">Header</TabsTrigger>
           <TabsTrigger value="style">Style</TabsTrigger>
         </TabsList>
 
         <TabsContent className="grid gap-5" value="pages">
           <PagesPanel />
+          <FeatureKitPanel />
           <SiteTemplateGallery />
           <NavigationPanel />
           <AISiteWizard />
@@ -146,6 +156,10 @@ export function LeftSidebar() {
 
         <TabsContent className="grid gap-5" value="elements">
           <ElementLibraryPanel />
+        </TabsContent>
+
+        <TabsContent className="grid gap-5" value="layers">
+          <LayerTreePanel />
         </TabsContent>
 
         <TabsContent className="grid gap-5" value="header">

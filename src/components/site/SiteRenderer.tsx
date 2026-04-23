@@ -10,12 +10,20 @@ import type { Block, SiteData, SitePage } from "@/types/page";
 type SiteRendererProps = {
   currentPage: SitePage;
   editorDnd?: Pick<EditorSectionDndContext, "pageId">;
+  onCreateDefaultHeader?: () => void;
   onElementClick?: (block: Block, elementId: string, event: MouseEvent<HTMLElement>) => void;
   renderBlock?: (block: Block, renderedBlock: ReactNode, index: number) => ReactNode;
   site: SiteData;
 };
 
-export function SiteRenderer({ currentPage, editorDnd, onElementClick, renderBlock, site }: SiteRendererProps) {
+export function SiteRenderer({
+  currentPage,
+  editorDnd,
+  onCreateDefaultHeader,
+  onElementClick,
+  renderBlock,
+  site,
+}: SiteRendererProps) {
   const colors = site.theme.colors;
   const shadow = getThemeShadow(site.theme);
   const spacing = getThemeSpacing(site.theme);
@@ -29,7 +37,7 @@ export function SiteRenderer({ currentPage, editorDnd, onElementClick, renderBlo
         fontFamily: site.theme.fontFamily,
       }}
     >
-      <SiteHeader site={site} />
+      <SiteHeader onCreateDefaultHeader={onCreateDefaultHeader} site={site} />
       <main>
         {currentPage.blocks
           .filter((block) => block.type !== "footer")
@@ -37,6 +45,7 @@ export function SiteRenderer({ currentPage, editorDnd, onElementClick, renderBlo
             const renderedBlock = (
               <BlockRenderer
                 block={block}
+                collections={site.collections}
                 colors={colors}
                 editorDnd={editorDnd ? { pageId: editorDnd.pageId, sectionId: block.id } : undefined}
                 radius={site.theme.radius}

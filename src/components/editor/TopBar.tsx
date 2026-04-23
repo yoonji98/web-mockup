@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, Monitor, Save, Smartphone, Tablet, WandSparkles } from "lucide-react";
+import { useEffect } from "react";
+import { CheckCircle2, Monitor, Redo2, Save, Smartphone, Tablet, Undo2, WandSparkles } from "lucide-react";
 
 import { ExportReactProjectButton } from "@/components/editor/ExportReactProjectButton";
 import { PublishProjectButton } from "@/components/editor/PublishProjectButton";
@@ -27,9 +28,48 @@ const previewModeConfig: Record<PreviewMode, { label: string; icon: typeof Monit
 };
 
 export function TopBar() {
-  const { currentPageId, isDirty, previewMode, saveToLocalStorage, setPreviewMode, site } =
+  const {
+    currentPageId,
+    historyFuture,
+    historyPast,
+    isDirty,
+    previewMode,
+    redo,
+    saveToLocalStorage,
+    setPreviewMode,
+    site,
+    undo,
+  } =
     useEditorStore();
   const currentPage = site.pages.find((page) => page.id === currentPageId) ?? site.pages[0];
+  const canUndo = historyPast.length > 0;
+  const canRedo = historyFuture.length > 0;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
+
+      if (isEditable || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (event.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [redo, undo]);
 
   return (
     <header className="border-b border-slate-200/80 bg-white/95 px-5 py-3 shadow-sm backdrop-blur">
@@ -73,6 +113,18 @@ export function TopBar() {
                 </Tooltip>
               );
             })}
+          </div>
+          <div className="flex rounded-2xl border border-slate-200 bg-white p-1">
+            <Tooltip content="Undo">
+              <Button disabled={!canUndo} onClick={undo} size="icon" variant="ghost">
+                <Undo2 size={15} />
+              </Button>
+            </Tooltip>
+            <Tooltip content="Redo">
+              <Button disabled={!canRedo} onClick={redo} size="icon" variant="ghost">
+                <Redo2 size={15} />
+              </Button>
+            </Tooltip>
           </div>
           <Badge className="gap-1.5" variant={isDirty ? "default" : "green"}>
             {isDirty ? null : <CheckCircle2 size={13} />}

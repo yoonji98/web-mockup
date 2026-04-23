@@ -116,18 +116,28 @@ export function createHeaderSlots(input: {
         },
       },
     ],
-    right: input.cta
-      ? [
-          {
-            id: "header-cta",
-            type: "signupButton",
-            props: {
-              href: input.cta.href,
-              label: input.cta.label,
+    right: [
+      {
+        id: "header-login",
+        type: "loginButton",
+        props: {
+          href: "/login",
+          label: "로그인",
+        },
+      },
+      ...(input.cta
+        ? [
+            {
+              id: "header-cta",
+              type: "signupButton" as const,
+              props: {
+                href: input.cta.href,
+                label: input.cta.label,
+              },
             },
-          },
-        ]
-      : [],
+          ]
+        : []),
+    ],
     mobile: [],
   };
 }

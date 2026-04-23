@@ -7,6 +7,7 @@ import { CSS as DndCSS } from "@dnd-kit/utilities";
 import { ArrowDown, ArrowUp, Copy, GripVertical, Palette, Sparkles, Trash2 } from "lucide-react";
 
 import { SiteRenderer } from "@/components/site/SiteRenderer";
+import { SmartInsertMenu } from "@/components/editor/SmartInsertMenu";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { canRemoveWatermark } from "@/lib/billing/entitlements";
@@ -35,6 +36,7 @@ export function CanvasArea() {
     paymentStatus,
     previewMode,
     removeBlock,
+    resetHeaderSlots,
     selectBlock,
     selectElement,
     selectedBlockId,
@@ -67,6 +69,7 @@ export function CanvasArea() {
             <SiteRenderer
               currentPage={currentPage}
               editorDnd={{ pageId: currentPage.id }}
+              onCreateDefaultHeader={resetHeaderSlots}
               onElementClick={(_block, elementId) => selectElement(elementId)}
               renderBlock={(block, renderedBlock, index) => {
                 const isSelected = selectedBlockId === block.id;
@@ -165,8 +168,8 @@ function SectionInsertDropZone({ index, pageId }: { index: number; pageId: strin
     <div
       ref={setNodeRef}
       className={cn(
-        "grid place-items-center transition-all",
-        isOver ? "h-12 bg-blue-50/80" : "h-3 bg-transparent",
+        "group relative grid place-items-center transition-all",
+        isOver ? "h-12 bg-blue-50/80" : "h-6 bg-transparent",
       )}
     >
       <div
@@ -174,6 +177,11 @@ function SectionInsertDropZone({ index, pageId }: { index: number; pageId: strin
           "h-0.5 w-[92%] rounded-full transition",
           isOver ? "bg-blue-500 opacity-100" : "bg-transparent opacity-0",
         )}
+      />
+      <SmartInsertMenu
+        className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100"
+        compact
+        target={{ index, kind: "section" }}
       />
     </div>
   );
@@ -196,7 +204,10 @@ function EmptyPageDropZone({ pageId }: { pageId: string }) {
         isOver ? "border-blue-400 bg-blue-50 text-blue-700" : "border-slate-300 text-slate-400",
       )}
     >
-      요소를 여기에 놓으면 새 섹션이 생성됩니다.
+      <div className="grid justify-items-center gap-3">
+        <span>요소를 여기에 놓으면 새 섹션이 생성됩니다.</span>
+        <SmartInsertMenu target={{ index: 0, kind: "page" }} />
+      </div>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import type { MouseEvent } from "react";
 
 import { AboutBlock } from "@/components/blocks/AboutBlock";
+import { CollectionDetailBlock } from "@/components/blocks/CollectionDetailBlock";
+import { CollectionListBlock } from "@/components/blocks/CollectionListBlock";
 import { CtaBlock } from "@/components/blocks/CtaBlock";
 import { FaqBlock } from "@/components/blocks/FaqBlock";
 import { FeaturesBlock } from "@/components/blocks/FeaturesBlock";
@@ -14,10 +16,12 @@ import { ContactBlock } from "@/components/blocks/ContactBlock";
 import { ElementBlockRenderer } from "@/components/elements/ElementRenderer";
 import { FreeformRenderer } from "@/components/layout/FreeformRenderer";
 import type { EditorSectionDndContext } from "@/components/editor/dnd-data";
+import type { CollectionDefinition } from "@/types/collections";
 import type { Block, PageData, StyleShadow, StyleSpacing, ThemeColors } from "@/types/page";
 
 type BlockRendererProps = {
   block: Block;
+  collections?: CollectionDefinition[];
   colors: ThemeColors;
   radius: PageData["theme"]["radius"];
   shadow: StyleShadow;
@@ -26,7 +30,16 @@ type BlockRendererProps = {
   onElementClick?: (elementId: string, event: MouseEvent<HTMLElement>) => void;
 };
 
-export function BlockRenderer({ block, colors, editorDnd, onElementClick, radius, shadow, spacing }: BlockRendererProps) {
+export function BlockRenderer({
+  block,
+  collections,
+  colors,
+  editorDnd,
+  onElementClick,
+  radius,
+  shadow,
+  spacing,
+}: BlockRendererProps) {
   if (block.type === "freeformSection") {
     return (
       <section
@@ -43,6 +56,7 @@ export function BlockRenderer({ block, colors, editorDnd, onElementClick, radius
         >
           <FreeformRenderer
             colors={colors}
+            editorDnd={editorDnd}
             elements={block.elements}
             layouts={block.props.layouts}
             onElementClick={onElementClick}
@@ -80,6 +94,28 @@ export function BlockRenderer({ block, colors, editorDnd, onElementClick, radius
       return <ServicesBlock block={block} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />;
     case "portfolio":
       return <PortfolioBlock block={block} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />;
+    case "collectionList":
+      return (
+        <CollectionListBlock
+          block={block}
+          collections={collections}
+          colors={colors}
+          radius={radius}
+          shadow={shadow}
+          spacing={spacing}
+        />
+      );
+    case "collectionDetail":
+      return (
+        <CollectionDetailBlock
+          block={block}
+          collections={collections}
+          colors={colors}
+          radius={radius}
+          shadow={shadow}
+          spacing={spacing}
+        />
+      );
     case "testimonials":
       return (
         <TestimonialsBlock block={block} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />

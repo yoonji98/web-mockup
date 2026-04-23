@@ -11,6 +11,7 @@ import {
   getContainerDropId,
   getElementDragId,
 } from "@/components/editor/dnd-data";
+import { SmartInsertMenu } from "@/components/editor/SmartInsertMenu";
 import { ElementRenderer } from "@/components/elements/ElementRenderer";
 import { toCssStyle } from "@/components/elements/element-utils";
 import { FreeformRenderer } from "@/components/layout/FreeformRenderer";
@@ -113,7 +114,7 @@ function ContainerContent({ colors, editorDnd, node, onElementClick, radius }: C
   return (
     <div
       className={cn(
-        "min-w-0",
+        "relative min-w-0",
         isGrid
           ? cn("grid gap-4", gridColumnClassName(columns))
           : "flex flex-col gap-4",
@@ -126,33 +127,43 @@ function ContainerContent({ colors, editorDnd, node, onElementClick, radius }: C
       } as CSSProperties}
     >
       {location ? (
-        <SortableContext
-          items={node.children.filter(isElementNode).map((child) => getElementDragId(child.id))}
-          strategy={verticalListSortingStrategy}
-        >
-          {node.children.map((child, index) =>
-            isElementNode(child) ? (
-              <SortableElementItem
-                colors={colors}
-                index={index}
-                key={child.id}
-                location={location}
-                node={child}
-                onElementClick={onElementClick}
-                radius={radius}
-              />
-            ) : (
-              <ElementRenderer
-                colors={colors}
-                editorDnd={editorDnd}
-                key={child.id}
-                node={child}
-                onElementClick={onElementClick}
-                radius={radius}
-              />
-            ),
-          )}
-        </SortableContext>
+        <>
+          {node.children.length === 0 ? (
+            <div className="grid min-h-24 place-items-center rounded-md border border-dashed border-slate-200 bg-white/50 p-3 text-xs font-semibold text-slate-400">
+              <div className="grid justify-items-center gap-2">
+                <span>여기에 요소를 놓으세요</span>
+                <SmartInsertMenu compact target={{ containerId: node.id, kind: "container" }} />
+              </div>
+            </div>
+          ) : null}
+          <SortableContext
+            items={node.children.filter(isElementNode).map((child) => getElementDragId(child.id))}
+            strategy={verticalListSortingStrategy}
+          >
+            {node.children.map((child, index) =>
+              isElementNode(child) ? (
+                <SortableElementItem
+                  colors={colors}
+                  index={index}
+                  key={child.id}
+                  location={location}
+                  node={child}
+                  onElementClick={onElementClick}
+                  radius={radius}
+                />
+              ) : (
+                <ElementRenderer
+                  colors={colors}
+                  editorDnd={editorDnd}
+                  key={child.id}
+                  node={child}
+                  onElementClick={onElementClick}
+                  radius={radius}
+                />
+              ),
+            )}
+          </SortableContext>
+        </>
       ) : (
         node.children.map((child) => (
           <ElementRenderer

@@ -1,4 +1,5 @@
 import { stylePacks } from "@/data/style-packs";
+import { defaultCollections } from "@/data/collections";
 import { makeSlug } from "@/lib/site-data";
 import type { SiteData, SiteType } from "@/types/page";
 import type { SiteTemplate } from "@/types/template";
@@ -38,6 +39,7 @@ export function createSiteDataFromTemplate(template: SiteTemplate): SiteData {
       },
     },
     pages: structuredClone(template.pages),
+    collections: structuredClone(defaultCollections),
     globalSections: {
       header: {
         enabled: true,

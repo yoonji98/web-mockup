@@ -1,4 +1,5 @@
 import { Field } from "@/components/editor/block-editors/EditorFields";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useEditorStore } from "@/store/editor-store";
 import type { Block } from "@/types/page";
@@ -13,6 +14,15 @@ export function FreeformSectionEditor({
 
   return (
     <div className="grid gap-3">
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+        <div className="flex items-center gap-2">
+          <Badge variant="default">고급</Badge>
+          <p className="text-sm font-semibold text-amber-950">Freeform Section</p>
+        </div>
+        <p className="mt-2 text-xs font-semibold text-amber-800">
+          자유 배치는 반응형 조정이 필요합니다. 일반 사용자는 Stack/Row/Grid 섹션을 먼저 권장합니다.
+        </p>
+      </div>
       <Field label="Title">
         <Input
           onChange={(event) => updateBlock(block.id, { title: event.target.value })}

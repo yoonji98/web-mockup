@@ -2,6 +2,7 @@ import type {
   SiteTheme,
   StyleRadius,
 } from "@/types/style";
+import type { CollectionDefinition } from "@/types/collections";
 import type { BlockElementContent, FreeformElementLayout, HeaderSlots } from "@/types/elements";
 export {
   backgroundStyleTypes,
@@ -36,6 +37,8 @@ export const blockTypes = [
   "portfolio",
   "testimonials",
   "pricing",
+  "collectionList",
+  "collectionDetail",
   "faq",
   "cta",
   "contact",
@@ -81,6 +84,8 @@ export const blockVariantOptions = {
   about: ["story", "image-left", "image-right", "stats-focused", "timeline"],
   services: ["service-cards", "detailed-list", "category-grid"],
   portfolio: ["project-grid", "masonry", "case-study"],
+  collectionList: ["card-grid", "media-list", "table"],
+  collectionDetail: ["article", "product", "profile"],
   testimonials: ["quote-cards", "wall", "featured"],
   pricing: ["simple-cards", "comparison", "highlighted-plan"],
   faq: ["accordion", "two-column", "minimal-list"],
@@ -229,6 +234,25 @@ export type PortfolioBlockProps = {
   }>;
 };
 
+export type CollectionListBlockProps = {
+  collectionId: string;
+  detailSlug?: string;
+  emptyText?: string;
+  itemLimit?: number;
+  showFields?: string[];
+  subtitle?: string;
+  title: string;
+};
+
+export type CollectionDetailBlockProps = {
+  backLabel?: string;
+  collectionId: string;
+  itemId?: string;
+  showFields?: string[];
+  subtitle?: string;
+  title: string;
+};
+
 export type ContactBlockProps = {
   title: string;
   subtitle: string;
@@ -286,6 +310,20 @@ export type PortfolioBlock = BlockElementContent & {
   type: "portfolio";
   variant?: BlockVariant<"portfolio">;
   props: PortfolioBlockProps;
+};
+
+export type CollectionListBlock = BlockElementContent & {
+  id: string;
+  type: "collectionList";
+  variant?: BlockVariant<"collectionList">;
+  props: CollectionListBlockProps;
+};
+
+export type CollectionDetailBlock = BlockElementContent & {
+  id: string;
+  type: "collectionDetail";
+  variant?: BlockVariant<"collectionDetail">;
+  props: CollectionDetailBlockProps;
 };
 
 export type TestimonialsBlock = BlockElementContent & {
@@ -371,6 +409,8 @@ export type Block =
   | AboutBlock
   | ServicesBlock
   | PortfolioBlock
+  | CollectionListBlock
+  | CollectionDetailBlock
   | TestimonialsBlock
   | PricingBlock
   | FaqBlock
@@ -442,6 +482,7 @@ export type SiteData = {
     };
   };
   pages: SitePage[];
+  collections?: CollectionDefinition[];
   globalSections?: {
     header?: HeaderConfig;
     footer?: FooterConfig;

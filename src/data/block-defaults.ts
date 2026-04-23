@@ -228,6 +228,30 @@ export const blockDefaults = {
       ],
     },
   },
+  collectionList: {
+    type: "collectionList",
+    variant: "card-grid",
+    props: {
+      title: "컬렉션 리스트",
+      subtitle: "샘플 데이터로 목록 페이지를 구성합니다.",
+      collectionId: "products",
+      detailSlug: "products",
+      itemLimit: 6,
+      showFields: ["title", "description", "price", "category"],
+      emptyText: "표시할 데이터가 없습니다.",
+    },
+  },
+  collectionDetail: {
+    type: "collectionDetail",
+    variant: "article",
+    props: {
+      title: "컬렉션 상세",
+      subtitle: "첫 번째 샘플 데이터를 상세 페이지처럼 보여줍니다.",
+      collectionId: "products",
+      backLabel: "목록으로",
+      showFields: ["title", "description", "price", "category", "featured"],
+    },
+  },
   contact: {
     type: "contact",
     variant: "split-info",

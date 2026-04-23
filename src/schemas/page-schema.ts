@@ -253,6 +253,39 @@ const portfolioBlockSchema = z
   })
   .strict();
 
+const collectionListBlockSchema = z
+  .object({
+    ...blockBase("collectionList"),
+    props: z
+      .object({
+        collectionId: z.string().min(1),
+        detailSlug: z.string().min(1).optional(),
+        emptyText: z.string().min(1).optional(),
+        itemLimit: z.number().int().positive().optional(),
+        showFields: z.array(z.string().min(1)).optional(),
+        subtitle: z.string().min(1).optional(),
+        title: z.string().min(1),
+      })
+      .strict(),
+  })
+  .strict();
+
+const collectionDetailBlockSchema = z
+  .object({
+    ...blockBase("collectionDetail"),
+    props: z
+      .object({
+        backLabel: z.string().min(1).optional(),
+        collectionId: z.string().min(1),
+        itemId: z.string().min(1).optional(),
+        showFields: z.array(z.string().min(1)).optional(),
+        subtitle: z.string().min(1).optional(),
+        title: z.string().min(1),
+      })
+      .strict(),
+  })
+  .strict();
+
 const testimonialsBlockSchema = z
   .object({
     ...blockBase("testimonials"),
@@ -424,6 +457,8 @@ export const blockSchema = z.discriminatedUnion("type", [
   aboutBlockSchema,
   servicesBlockSchema,
   portfolioBlockSchema,
+  collectionListBlockSchema,
+  collectionDetailBlockSchema,
   testimonialsBlockSchema,
   pricingBlockSchema,
   faqBlockSchema,

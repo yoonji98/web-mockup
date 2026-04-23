@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Copy, PanelRight, Trash2 } from "lucide-react";
 
 import { AIRewriteBlockButton } from "@/components/editor/AIRewriteBlockButton";
 import { AboutEditor } from "@/components/editor/block-editors/AboutEditor";
+import { CollectionBlockEditor } from "@/components/editor/block-editors/CollectionBlockEditor";
 import { ContactEditor } from "@/components/editor/block-editors/ContactEditor";
 import { ContainerSectionEditor } from "@/components/editor/block-editors/ContainerSectionEditor";
 import { CtaEditor } from "@/components/editor/block-editors/CtaEditor";
@@ -18,6 +19,7 @@ import { PricingEditor } from "@/components/editor/block-editors/PricingEditor";
 import { ServicesEditor } from "@/components/editor/block-editors/ServicesEditor";
 import { TestimonialsEditor } from "@/components/editor/block-editors/TestimonialsEditor";
 import { ElementPropertiesPanel } from "@/components/editor/ElementPropertiesPanel";
+import { SelectionBreadcrumb } from "@/components/editor/SelectionBreadcrumb";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +35,8 @@ const blockNames: Record<Block["type"], string> = {
   about: "About",
   services: "Services",
   portfolio: "Portfolio",
+  collectionList: "Collection List",
+  collectionDetail: "Collection Detail",
   testimonials: "Testimonials",
   pricing: "Pricing",
   faq: "FAQ",
@@ -57,6 +61,7 @@ export function RightPanel() {
   if (selectedElementId) {
     return (
       <aside className="h-full overflow-auto border-l border-slate-200/80 bg-slate-50/80 p-4">
+        <SelectionBreadcrumb />
         <ElementPropertiesPanel />
       </aside>
     );
@@ -65,6 +70,7 @@ export function RightPanel() {
   if (!selectedBlock) {
     return (
       <aside className="h-full overflow-auto border-l border-slate-200/80 bg-slate-50/80 p-4">
+        <SelectionBreadcrumb />
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -84,6 +90,7 @@ export function RightPanel() {
 
   return (
     <aside className="h-full overflow-auto border-l border-slate-200/80 bg-slate-50/80 p-4">
+      <SelectionBreadcrumb />
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
@@ -191,6 +198,9 @@ function BlockEditor({ block }: BlockEditorProps) {
       return <ServicesEditor block={block} />;
     case "portfolio":
       return <PortfolioEditor block={block} />;
+    case "collectionList":
+    case "collectionDetail":
+      return <CollectionBlockEditor block={block} />;
     case "testimonials":
       return <TestimonialsEditor block={block} />;
     case "pricing":

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { collectionDefinitionSchema } from "@/schemas/collection-schema";
 import { containerNodeSchema, elementNodeSchema } from "@/schemas/element-schema";
 import { blockSchema, themeSchema } from "@/schemas/page-schema";
 import {
@@ -57,6 +58,7 @@ export const siteDataSchema = z
       })
       .strict(),
     theme: themeSchema,
+    collections: z.array(collectionDefinitionSchema).optional(),
     navigation: z
       .object({
         items: z.array(navItemSchema),
@@ -110,7 +112,12 @@ export const generateSiteRequestSchema = z
     goal: z.string().min(1),
     tone: z.string().min(1),
     pageCount: z.enum(["one-page", "small-site", "full-site"]),
+    generationLevel: z.enum(["static-mockup", "frontend-scaffold", "full-stack"]).optional(),
+    selectedFeatureKitIds: z.array(z.string().min(1)).optional(),
+    selectedPageIds: z.array(z.string().min(1)).optional(),
+    requiredFeatureKeys: z.array(z.string().min(1)).optional(),
     stylePreference: z.string().optional(),
+    stylePackId: z.string().min(1).optional(),
     loginButtonMode: z.enum(["auto", "include", "hide"]).optional(),
     menuMode: z.enum(["auto", "anchor", "multi-page"]).optional(),
   })

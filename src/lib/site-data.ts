@@ -1,13 +1,17 @@
 import { v4 as createId } from "uuid";
 
 import { createDefaultBlock } from "@/data/block-defaults";
+import { defaultCollections } from "@/data/collections";
+import { pageDefinitionToSitePageType, routePatternToSlug } from "@/data/page-catalog";
 import { starterPageData } from "@/data/starter-page";
 import { createHeaderSlots, withMigratedElementData } from "@/lib/element-migration";
-import { footerVariants } from "@/types/page";
-import type { Block, FooterVariant, PageData, SiteData, SitePage, SitePageType } from "@/types/page";
+import { blockTypes, footerVariants } from "@/types/page";
+import type { PageDefinition } from "@/types/page-catalog";
+import type { Block, BlockType, FooterVariant, PageData, SiteData, SitePage, SitePageType } from "@/types/page";
 import type { ElementNode, HeaderSlots } from "@/types/elements";
 
 export type CreateSitePageInput = {
+  blockTypes?: BlockType[];
   includeStarterBlocks?: boolean;
   slug?: string;
   title: string;
@@ -64,6 +68,7 @@ export function pageDataToSiteData(page: PageData): SiteData {
             : [createDefaultBlock("hero"), createDefaultBlock("cta")].map(withMigratedElementData),
       },
     ],
+    collections: structuredClone(defaultCollections),
     globalSections: {
       header: {
         enabled: true,
@@ -149,6 +154,10 @@ export function normalizeSiteData(site: SiteData): SiteData {
       cta: site.navigation.cta,
     },
     pages: nextPages,
+    collections:
+      site.collections && site.collections.length > 0
+        ? structuredClone(site.collections)
+        : structuredClone(defaultCollections),
     globalSections: {
       header: {
         containers: site.globalSections?.header?.containers,
@@ -173,7 +182,11 @@ export function normalizeSiteData(site: SiteData): SiteData {
 }
 
 export function createSitePage(input: CreateSitePageInput): SitePage {
-  const blocks = input.includeStarterBlocks ? createStarterBlocksForPage(input.type) : [createDefaultBlock("hero")];
+  const blocks = input.blockTypes?.length
+    ? input.blockTypes.map(createDefaultBlock)
+    : input.includeStarterBlocks
+      ? createStarterBlocksForPage(input.type)
+      : [createDefaultBlock("hero")];
   const slug = input.slug ? makeSlug(input.slug) : makeSlug(input.title);
 
   return {
@@ -186,6 +199,26 @@ export function createSitePage(input: CreateSitePageInput): SitePage {
       description: `${input.title.trim() || "Untitled"} 페이지`,
     },
     blocks,
+  };
+}
+
+export function createSitePageFromDefinition(
+  definition: PageDefinition,
+  existingPages: SitePage[] = [],
+): SitePage {
+  const type = pageDefinitionToSitePageType(definition);
+  const slug = type === "home" ? "home" : ensureUniquePageSlug(routePatternToSlug(definition.routePattern), existingPages);
+
+  return {
+    id: definition.id,
+    title: definition.name,
+    slug,
+    type,
+    seo: {
+      title: definition.name,
+      description: definition.description,
+    },
+    blocks: createBlocksFromPageDefinition(definition),
   };
 }
 
@@ -264,6 +297,69 @@ function createStarterBlocksForPage(type: SitePageType): Block[] {
   }
 
   return [createDefaultBlock("hero"), createDefaultBlock("features"), createDefaultBlock("cta")];
+}
+
+function createBlocksFromPageDefinition(definition: PageDefinition): Block[] {
+  const blockTypeList = getPageDefinitionBlockTypes(definition);
+  const blocks = blockTypeList.length > 0 ? blockTypeList.map(createDefaultBlock) : [createDefaultBlock("hero")];
+
+  return blocks.map((block) => customizeCatalogBlock(block, definition));
+}
+
+function getPageDefinitionBlockTypes(definition: PageDefinition): BlockType[] {
+  if (definition.dataModel && definition.pageKind === "list") {
+    return ["hero", "collectionList", "cta"];
+  }
+
+  if (definition.dataModel && definition.pageKind === "detail") {
+    return ["collectionDetail", "cta"];
+  }
+
+  return definition.defaultBlocks.filter(isBlockType);
+}
+
+function customizeCatalogBlock(block: Block, definition: PageDefinition): Block {
+  if (block.type === "hero") {
+    return {
+      ...block,
+      props: {
+        ...block.props,
+        title: definition.name,
+        subtitle: definition.description,
+      },
+    };
+  }
+
+  if (block.type === "collectionList") {
+    return {
+      ...block,
+      props: {
+        ...block.props,
+        collectionId: definition.dataModel ?? block.props.collectionId,
+        detailSlug: routePatternToSlug(definition.routePattern),
+        title: definition.name,
+        subtitle: definition.description,
+      },
+    };
+  }
+
+  if (block.type === "collectionDetail") {
+    return {
+      ...block,
+      props: {
+        ...block.props,
+        collectionId: definition.dataModel ?? block.props.collectionId,
+        title: definition.name,
+        subtitle: definition.description,
+      },
+    };
+  }
+
+  return block;
+}
+
+function isBlockType(value: string): value is BlockType {
+  return (blockTypes as readonly string[]).includes(value);
 }
 
 function isFooterVariant(variant: string | undefined): variant is FooterVariant {

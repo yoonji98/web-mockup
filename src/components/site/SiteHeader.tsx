@@ -9,6 +9,7 @@ import type { ElementNode, HeaderSlotType, HeaderSlots } from "@/types/elements"
 import type { HeaderHeight, SiteData } from "@/types/page";
 
 type SiteHeaderProps = {
+  onCreateDefaultHeader?: () => void;
   site: SiteData;
 };
 
@@ -18,7 +19,7 @@ const heightClassName: Record<HeaderHeight, string> = {
   sm: "py-3",
 };
 
-export function SiteHeader({ site }: SiteHeaderProps) {
+export function SiteHeader({ onCreateDefaultHeader, site }: SiteHeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const colors = site.theme.colors;
   const header = site.globalSections?.header;
@@ -28,6 +29,9 @@ export function SiteHeader({ site }: SiteHeaderProps) {
   }
 
   const slots = header?.slots ?? {};
+  const isEmptyHeader = ["left", "center", "right"].every(
+    (slot) => (slots[slot as HeaderSlotType] ?? []).length === 0,
+  );
   const isTransparent = header?.transparent ?? header?.variant === "transparent";
   const isSticky = header?.sticky ?? true;
   const headerHeight = header?.height ?? "md";
@@ -42,27 +46,39 @@ export function SiteHeader({ site }: SiteHeaderProps) {
       <div
         className={`mx-auto grid max-w-6xl grid-cols-[1fr_auto] items-center gap-4 px-5 md:grid-cols-[1fr_auto_1fr] ${heightClassName[headerHeight]}`}
       >
-        <HeaderSlot elements={slots.left} site={site} slot="left" />
-        <HeaderSlot
-          className="hidden justify-center md:flex"
-          elements={slots.center}
-          site={site}
-          slot="center"
-        />
-        <HeaderSlot
-          className="hidden justify-end md:flex"
-          elements={slots.right}
-          site={site}
-          slot="right"
-        />
-        <Button
-          className="justify-self-end md:hidden"
-          onClick={() => setIsOpen((value) => !value)}
-          size="icon"
-          variant="ghost"
-        >
-          {isOpen ? <X size={18} /> : <Menu size={18} />}
-        </Button>
+        {isEmptyHeader && onCreateDefaultHeader ? (
+          <div className="col-span-full flex items-center justify-center">
+            <Button onClick={onCreateDefaultHeader} size="sm" variant="outline">
+              기본 Header 생성
+            </Button>
+          </div>
+        ) : (
+          <>
+            <HeaderSlot elements={slots.left} site={site} slot="left" />
+            <HeaderSlot
+              className="hidden justify-center md:flex"
+              elements={slots.center}
+              site={site}
+              slot="center"
+            />
+            <HeaderSlot
+              className="hidden justify-end md:flex"
+              elements={slots.right}
+              site={site}
+              slot="right"
+            />
+          </>
+        )}
+        {!isEmptyHeader ? (
+          <Button
+            className="justify-self-end md:hidden"
+            onClick={() => setIsOpen((value) => !value)}
+            size="icon"
+            variant="ghost"
+          >
+            {isOpen ? <X size={18} /> : <Menu size={18} />}
+          </Button>
+        ) : null}
       </div>
 
       {isOpen ? (

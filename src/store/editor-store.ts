@@ -6,11 +6,13 @@ import { create } from "zustand";
 
 import { createDefaultBlock } from "@/data/block-defaults";
 import { createDefaultContainer, createDefaultElement } from "@/data/element-defaults";
+import { findPageDefinition, routePatternToSlug } from "@/data/page-catalog";
 import { projectPaymentStatusSchema, type ProjectPaymentStatus } from "@/lib/project-repository";
 import {
   createDefaultSiteData,
   createNavigationFromPages,
   createSitePage,
+  createSitePageFromDefinition,
   ensureUniquePageSlug,
   getCurrentSitePage,
   normalizeSiteData,
@@ -35,6 +37,8 @@ import type {
   Palette,
   PortfolioBlockProps,
   PricingBlockProps,
+  CollectionDetailBlockProps,
+  CollectionListBlockProps,
   ServicesBlockProps,
   StylePack,
   SiteData,
@@ -56,6 +60,7 @@ import type {
   ElementSelection,
   ElementStyle,
   ElementTreeNode,
+  FreeformElementLayout,
   HeaderSlotType,
   HeaderSlots,
   LocationRef,
@@ -93,6 +98,8 @@ export type BlockPropsUpdate =
   | Partial<AboutBlockProps>
   | Partial<ServicesBlockProps>
   | Partial<PortfolioBlockProps>
+  | Partial<CollectionListBlockProps>
+  | Partial<CollectionDetailBlockProps>
   | Partial<TestimonialsBlockProps>
   | Partial<PricingBlockProps>
   | Partial<FaqBlockProps>
@@ -117,6 +124,10 @@ type MoveElementInput = {
   from: LocationRef;
   index?: number;
   to: LocationRef;
+};
+
+type FreeformLayoutUpdate = Partial<Omit<FreeformElementLayout, "breakpoint" | "elementId">> & {
+  breakpoint?: FreeformElementLayout["breakpoint"];
 };
 
 type EditorHistorySnapshot = {
@@ -153,6 +164,7 @@ type EditorState = {
   updateSiteMeta: (partial: Partial<Omit<SiteData, "pages" | "theme">>) => void;
   updatePageMeta: (partial: PageMetaUpdate) => void;
   addPage: (input: CreateSitePageInput) => void;
+  addPagesFromCatalog: (pageDefinitionIds: string[]) => number;
   removePage: (id: string) => void;
   duplicatePage: (id: string) => void;
   updatePage: (id: string, partial: Partial<Omit<SitePage, "id" | "blocks">>) => void;
@@ -173,6 +185,11 @@ type EditorState = {
   duplicateBlock: (id: string) => void;
   updateBlock: (id: string, props: BlockPropsUpdate) => void;
   addElementToContainer: (containerId: string, type: ElementNodeType, index?: number) => void;
+  addElementToFreeform: (
+    blockId: string,
+    type: ElementNodeType,
+    layout?: Partial<Omit<FreeformElementLayout, "breakpoint" | "elementId">>,
+  ) => void;
   addElementToLocation: (type: ElementNodeType, location: LocationRef, index?: number) => void;
   addElementToSelectedTarget: (type: ElementNodeType) => void;
   addElementToHeaderSlot: (slot: HeaderSlotType, type: ElementNodeType, index?: number) => void;
@@ -187,6 +204,7 @@ type EditorState = {
   resetHeaderSlots: () => void;
   updateContainer: (blockId: string, containerId: string, update: ContainerUpdate) => void;
   updateElement: (elementId: string, update: ElementUpdate) => void;
+  updateFreeformElementLayout: (blockId: string, elementId: string, update: FreeformLayoutUpdate) => void;
   updateHeaderConfig: (update: Partial<HeaderConfig>) => void;
   setBlockVariant: (id: string, variant: string) => void;
   moveBlock: (id: string, direction: "up" | "down") => void;
@@ -525,7 +543,12 @@ function syncCurrentPageState(
   return createEditorSlice(site, currentPageId, selectedBlockId);
 }
 
-function replaceCurrentPageBlocks(state: EditorState, blocks: Block[], selectedBlockId: string | null) {
+function replaceCurrentPageBlocks(
+  state: EditorState,
+  blocks: Block[],
+  selectedBlockId: string | null,
+  historyGroupKey?: string,
+) {
   const site = updateSitePage(state.site, state.currentPageId, (sitePage) => ({
     ...sitePage,
     blocks,
@@ -546,7 +569,7 @@ function replaceCurrentPageBlocks(state: EditorState, blocks: Block[], selectedB
 
   return {
     ...nextSlice,
-    ...pushHistory(state),
+    ...pushHistory(state, historyGroupKey),
     selectedContainerId,
     selectedElementId,
     selectedHeaderSlot: state.selectedHeaderSlot,
@@ -1023,6 +1046,70 @@ function insertElementIntoSiteContainer(
   }));
 }
 
+function snapFreeformValue(value: number, snap = 8): number {
+  return Math.max(0, Math.round(value / snap) * snap);
+}
+
+function defaultFreeformSize(type: ElementNodeType) {
+  if (type === "image" || type === "card" || type === "form") {
+    return { h: 220, w: 320 };
+  }
+
+  if (type === "heading") {
+    return { h: 96, w: 420 };
+  }
+
+  if (type === "button" || type === "loginButton" || type === "signupButton" || type === "link") {
+    return { h: 56, w: 180 };
+  }
+
+  return { h: 120, w: 280 };
+}
+
+function createFreeformLayouts(
+  elementId: string,
+  type: ElementNodeType,
+  index: number,
+  layout?: Partial<Omit<FreeformElementLayout, "breakpoint" | "elementId">>,
+): FreeformElementLayout[] {
+  const size = defaultFreeformSize(type);
+  const x = snapFreeformValue(layout?.x ?? 80 + index * 28);
+  const y = snapFreeformValue(layout?.y ?? 88 + index * 28);
+  const w = snapFreeformValue(layout?.w ?? size.w);
+  const h = snapFreeformValue(layout?.h ?? size.h);
+  const zIndex = layout?.zIndex ?? index + 1;
+
+  return [
+    {
+      breakpoint: "desktop",
+      elementId,
+      h,
+      w,
+      x,
+      y,
+      zIndex,
+    },
+    {
+      breakpoint: "tablet",
+      elementId,
+      h,
+      w: Math.min(w, 640),
+      x: Math.min(x, 48),
+      y,
+      zIndex,
+    },
+    {
+      breakpoint: "mobile",
+      elementId,
+      h: Math.max(72, Math.min(h, 220)),
+      w: 342,
+      x: 24,
+      y: 32 + index * 148,
+      zIndex,
+    },
+  ];
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   page: clonePage(initialPage),
   site: cloneSite(initialSite),
@@ -1055,7 +1142,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       isDirty: true,
     })),
   setSite: (site) =>
-    set(() => {
+    set((state) => {
       const nextSlice = syncCurrentPageState(site, site.pages[0]?.id ?? "home", null);
 
       return {
@@ -1143,6 +1230,67 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         isDirty: true,
       };
     }),
+  addPagesFromCatalog: (pageDefinitionIds) => {
+    let addedCount = 0;
+
+    set((state) => {
+      const nextPages = [...state.site.pages];
+      const seenDefinitionIds = new Set(nextPages.map((page) => page.id));
+      const seenSlugs = new Set(nextPages.map((page) => page.slug));
+
+      pageDefinitionIds.forEach((pageDefinitionId) => {
+        const definition = findPageDefinition(pageDefinitionId);
+
+        if (!definition) {
+          return;
+        }
+
+        const slug = definition.routePattern === "/" ? "home" : routePatternToSlug(definition.routePattern);
+        const hasHomePage = definition.routePattern === "/" && nextPages.some((page) => page.type === "home");
+        const isDuplicate =
+          hasHomePage ||
+          seenDefinitionIds.has(definition.id) ||
+          seenSlugs.has(slug) ||
+          nextPages.some((page) => page.title === definition.name);
+
+        if (isDuplicate) {
+          return;
+        }
+
+        const page = createSitePageFromDefinition(definition, nextPages);
+        nextPages.push(page);
+        seenDefinitionIds.add(page.id);
+        seenSlugs.add(page.slug);
+        addedCount += 1;
+      });
+
+      if (addedCount === 0) {
+        return state;
+      }
+
+      const site = normalizeSiteData({
+        ...state.site,
+        navigation: {
+          ...state.site.navigation,
+          items: createNavigationFromPages(nextPages),
+        },
+        pages: nextPages,
+      });
+      const currentPageId = nextPages[nextPages.length - 1]?.id ?? state.currentPageId;
+
+      return {
+        ...syncCurrentPageState(site, currentPageId, null),
+        ...pushHistory(state),
+        selectedContainerId: null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: null,
+        isDirty: true,
+      };
+    });
+
+    return addedCount;
+  },
   removePage: (id) =>
     set((state) => {
       const targetPage = state.site.pages.find((page) => page.id === id);
@@ -1522,6 +1670,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         isDirty: true,
       };
     }),
+  addElementToFreeform: (blockId, type, layout) =>
+    set((state) => {
+      const element = createDefaultElement(type);
+      const blocks = state.page.blocks.map((block) => {
+        if (block.id !== blockId || block.type !== "freeformSection") {
+          return block;
+        }
+
+        const desktopLayouts = block.props.layouts.filter((item) => item.breakpoint === "desktop");
+        const nextLayouts = createFreeformLayouts(element.id, type, desktopLayouts.length, layout);
+
+        return {
+          ...block,
+          elements: [...(block.elements ?? []), element],
+          props: {
+            ...block.props,
+            layouts: [...block.props.layouts, ...nextLayouts],
+          },
+        };
+      });
+
+      return {
+        ...replaceCurrentPageBlocks(state, blocks, blockId),
+        selectedBlockId: blockId,
+        selectedContainerId: null,
+        selectedElementId: element.id,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: { blockId, kind: "block" },
+      };
+    }),
   addElementToLocation: (type, location, index) => {
     if (location.type === "headerSlot") {
       get().addElementToHeaderSlot(location.slot, type, index);
@@ -1537,6 +1715,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const page = get().site.pages.find((sitePage) => sitePage.id === location.pageId);
       const block = page?.blocks.find((pageBlock) => pageBlock.id === location.sectionId);
       const containerId = block ? getFirstContainerId(block) : null;
+
+      if (block?.type === "freeformSection") {
+        get().addElementToFreeform(location.sectionId, type);
+        return;
+      }
 
       if (containerId) {
         get().addElementToContainer(containerId, type, index);
@@ -1566,6 +1749,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const block = state.page.blocks.find((pageBlock) => pageBlock.id === state.selectedBlockId);
       const containerId = block ? getFirstContainerId(block) : null;
 
+      if (block?.type === "freeformSection") {
+        state.addElementToFreeform(block.id, type);
+        return;
+      }
+
       if (containerId) {
         state.addElementToContainer(containerId, type);
         return;
@@ -1583,6 +1771,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const page = state.site.pages.find((sitePage) => sitePage.id === location.pageId);
       const block = page?.blocks.find((pageBlock) => pageBlock.id === location.sectionId);
       const containerId = block ? getFirstContainerId(block) : null;
+
+      if (block?.type === "freeformSection") {
+        state.addElementToFreeform(block.id, type);
+        return;
+      }
 
       if (containerId) {
         state.addElementToContainer(containerId, type);
@@ -1887,6 +2080,51 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         isDirty: true,
       };
     }),
+  updateFreeformElementLayout: (blockId, elementId, update) =>
+    set((state) => {
+      const breakpoint = update.breakpoint ?? "desktop";
+      const blocks = state.page.blocks.map((block) => {
+        if (block.id !== blockId || block.type !== "freeformSection") {
+          return block;
+        }
+
+        const existingLayout = block.props.layouts.find(
+          (item) => item.elementId === elementId && item.breakpoint === breakpoint,
+        );
+        const fallbackLayout = block.props.layouts.find((item) => item.elementId === elementId);
+        const nextLayout: FreeformElementLayout = {
+          breakpoint,
+          elementId,
+          h: update.h ?? existingLayout?.h ?? fallbackLayout?.h ?? 120,
+          w: update.w ?? existingLayout?.w ?? fallbackLayout?.w ?? 280,
+          x: update.x ?? existingLayout?.x ?? fallbackLayout?.x ?? 80,
+          y: update.y ?? existingLayout?.y ?? fallbackLayout?.y ?? 80,
+          zIndex: update.zIndex ?? existingLayout?.zIndex ?? fallbackLayout?.zIndex ?? 1,
+        };
+        const hasExistingLayout = block.props.layouts.some(
+          (item) => item.elementId === elementId && item.breakpoint === breakpoint,
+        );
+
+        return {
+          ...block,
+          props: {
+            ...block.props,
+            layouts: hasExistingLayout
+              ? block.props.layouts.map((item) =>
+                  item.elementId === elementId && item.breakpoint === breakpoint ? nextLayout : item,
+                )
+              : [...block.props.layouts, nextLayout],
+          },
+        };
+      });
+
+      return {
+        ...replaceCurrentPageBlocks(state, blocks, blockId, `freeform-layout:${elementId}`),
+        selectedBlockId: blockId,
+        selectedElementId: elementId,
+        selectedInsertionTarget: { blockId, kind: "block" },
+      };
+    }),
   updateHeaderConfig: (update) =>
     set((state) => {
       const currentHeader = state.site.globalSections?.header;
@@ -2141,9 +2379,47 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       previewMode: mode,
     }),
+  undo: () =>
+    set((state) => {
+      const previous = state.historyPast[state.historyPast.length - 1];
+
+      if (!previous) {
+        return state;
+      }
+
+      return {
+        ...restoreHistorySnapshot(previous),
+        historyFuture: [createHistorySnapshot(state), ...state.historyFuture].slice(0, HISTORY_LIMIT),
+        historyGroupAt: 0,
+        historyGroupKey: null,
+        historyPast: state.historyPast.slice(0, -1),
+        isDirty: true,
+      };
+    }),
+  redo: () =>
+    set((state) => {
+      const next = state.historyFuture[0];
+
+      if (!next) {
+        return state;
+      }
+
+      return {
+        ...restoreHistorySnapshot(next),
+        historyFuture: state.historyFuture.slice(1),
+        historyGroupAt: 0,
+        historyGroupKey: null,
+        historyPast: [...state.historyPast, createHistorySnapshot(state)].slice(-HISTORY_LIMIT),
+        isDirty: true,
+      };
+    }),
   resetEditor: () =>
     set({
       ...syncCurrentPageState(initialSite, initialCurrentPage.id, getInitialSelectedBlockId(initialPage)),
+      historyFuture: [],
+      historyGroupAt: 0,
+      historyGroupKey: null,
+      historyPast: [],
       selectedContainerId: null,
       selectedElementId: null,
       selectedHeaderSlot: null,
@@ -2186,6 +2462,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
     set({
       ...nextSlice,
+      historyFuture: [],
+      historyGroupAt: 0,
+      historyGroupKey: null,
+      historyPast: [],
       selectedContainerId: null,
       selectedElementId: null,
       selectedHeaderSlot: null,

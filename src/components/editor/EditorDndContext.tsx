@@ -22,12 +22,17 @@ type EditorDndContextProps = {
 
 export function EditorDndContext({ children }: EditorDndContextProps) {
   const addElementToLocation = useEditorStore((state) => state.addElementToLocation);
+  const addElementToHeaderSlot = useEditorStore((state) => state.addElementToHeaderSlot);
+  const addElementToFreeform = useEditorStore((state) => state.addElementToFreeform);
   const createContainerSectionWithElement = useEditorStore(
     (state) => state.createContainerSectionWithElement,
   );
   const moveElement = useEditorStore((state) => state.moveElement);
+  const moveElementToHeaderSlot = useEditorStore((state) => state.moveElementToHeaderSlot);
   const reorderElements = useEditorStore((state) => state.reorderElements);
+  const reorderHeaderSlotElements = useEditorStore((state) => state.reorderHeaderSlotElements);
   const reorderSections = useEditorStore((state) => state.reorderSections);
+  const updateFreeformElementLayout = useEditorStore((state) => state.updateFreeformElementLayout);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const [activeData, setActiveData] = useState<EditorDragData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -43,6 +48,14 @@ export function EditorDndContext({ children }: EditorDndContextProps) {
 
     if (activeData.dragType === "section") {
       return "섹션 이동";
+    }
+
+    if (activeData.dragType === "headerElement") {
+      return "Header 요소 이동";
+    }
+
+    if (activeData.dragType === "freeformElement") {
+      return "Freeform 요소 이동";
     }
 
     return "요소 이동";
@@ -67,9 +80,27 @@ export function EditorDndContext({ children }: EditorDndContextProps) {
     }
 
     if (dragData.dragType === "libraryElement") {
+      if (dropData.dropType === "headerSlot") {
+        addElementToHeaderSlot(dropData.slot, dragData.elementType, dropData.index);
+        showMessage(`${elementLabels[dragData.elementType]} 요소를 Header에 추가했습니다.`);
+        return;
+      }
+
+      if (dropData.dropType === "headerElement") {
+        addElementToHeaderSlot(dropData.slot, dragData.elementType, dropData.index);
+        showMessage(`${elementLabels[dragData.elementType]} 요소를 Header에 추가했습니다.`);
+        return;
+      }
+
       if (dropData.dropType === "container") {
         addElementToLocation(dragData.elementType, dropData.location);
         showMessage(`${elementLabels[dragData.elementType]} 요소를 추가했습니다.`);
+        return;
+      }
+
+      if (dropData.dropType === "freeformCanvas") {
+        addElementToFreeform(dropData.blockId, dragData.elementType);
+        showMessage(`${elementLabels[dragData.elementType]} 요소를 Freeform에 추가했습니다.`);
         return;
       }
 
@@ -93,12 +124,39 @@ export function EditorDndContext({ children }: EditorDndContextProps) {
       return;
     }
 
+    if (dragData.dragType === "headerElement") {
+      if (dropData.dropType === "headerElement") {
+        if (dragData.slot === dropData.slot) {
+          reorderHeaderSlotElements(dragData.slot, dragData.elementId, dropData.elementId);
+          return;
+        }
+
+        moveElementToHeaderSlot(dragData.elementId, dropData.slot, dropData.index);
+        return;
+      }
+
+      if (dropData.dropType === "headerSlot") {
+        moveElementToHeaderSlot(dragData.elementId, dropData.slot, dropData.index);
+      }
+
+      return;
+    }
+
     if (dragData.dragType === "section" && dropData.dropType === "section") {
       reorderSections(dragData.blockId, dropData.blockId);
       return;
     }
 
     if (dragData.dragType !== "canvasElement") {
+      if (dragData.dragType === "freeformElement" && dropData.dropType === "freeformCanvas") {
+        const snap = 8;
+        updateFreeformElementLayout(dragData.blockId, dragData.elementId, {
+          breakpoint: dragData.layout.breakpoint,
+          x: Math.max(0, Math.round((dragData.layout.x + event.delta.x) / snap) * snap),
+          y: Math.max(0, Math.round((dragData.layout.y + event.delta.y) / snap) * snap),
+        });
+      }
+
       return;
     }
 
@@ -122,6 +180,19 @@ export function EditorDndContext({ children }: EditorDndContextProps) {
         elementId: dragData.elementId,
         from: dragData.location,
         to: dropData.location,
+      });
+      return;
+    }
+
+    if (dropData.dropType === "headerSlot") {
+      moveElement({
+        elementId: dragData.elementId,
+        from: dragData.location,
+        index: dropData.index,
+        to: {
+          slot: dropData.slot,
+          type: "headerSlot",
+        },
       });
     }
   }

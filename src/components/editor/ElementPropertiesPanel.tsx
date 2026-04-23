@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
 import { ButtonElementEditor } from "@/components/editor/element-editors/ButtonElementEditor";
@@ -17,7 +18,7 @@ import { Field } from "@/components/editor/block-editors/EditorFields";
 import { elementLabels } from "@/data/element-defaults";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Textarea } from "@/components/ui/input";
+import { Input, Select, Textarea } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEditorStore } from "@/store/editor-store";
@@ -27,6 +28,7 @@ import type {
   ElementProps,
   ElementStyle,
   ElementTreeNode,
+  FreeformElementLayout,
 } from "@/types/elements";
 import type { Block } from "@/types/page";
 
@@ -36,8 +38,8 @@ export function ElementPropertiesPanel() {
     removeElement,
     selectedElementId,
     site,
-    updateBlock,
     updateElement,
+    updateFreeformElementLayout,
   } = useEditorStore();
 
   if (!selectedElementId) {
@@ -95,7 +97,9 @@ export function ElementPropertiesPanel() {
               <FreeformLayoutEditor
                 block={found.block}
                 elementId={found.element.id}
-                updateBlock={(props) => updateBlock(found.block?.id ?? "", props)}
+                updateLayout={(update) =>
+                  updateFreeformElementLayout(found.block?.id ?? "", found.element.id, update)
+                }
               />
             ) : null}
           </TabsContent>
@@ -178,34 +182,51 @@ function LayoutElementEditor({ element, updateProps }: ElementEditorProps) {
 function FreeformLayoutEditor({
   block,
   elementId,
-  updateBlock,
+  updateLayout,
 }: {
   block: Extract<Block, { type: "freeformSection" }>;
   elementId: string;
-  updateBlock: (props: Partial<Extract<Block, { type: "freeformSection" }>["props"]>) => void;
+  updateLayout: (
+    update: Partial<Omit<FreeformElementLayout, "breakpoint" | "elementId">> & {
+      breakpoint?: FreeformElementLayout["breakpoint"];
+    },
+  ) => void;
 }) {
-  const layout = block.props.layouts.find((item) => item.elementId === elementId && item.breakpoint === "desktop");
+  const [breakpoint, setBreakpoint] = useState<FreeformElementLayout["breakpoint"]>("desktop");
+  const layout =
+    block.props.layouts.find((item) => item.elementId === elementId && item.breakpoint === breakpoint) ??
+    block.props.layouts.find((item) => item.elementId === elementId && item.breakpoint === "desktop");
 
   if (!layout) {
     return null;
   }
 
-  const updateLayout = (patch: Partial<typeof layout>) =>
-    updateBlock({
-      layouts: block.props.layouts.map((item) =>
-        item.elementId === elementId && item.breakpoint === "desktop" ? { ...item, ...patch } : item,
-      ),
-    });
+  const updateCurrentLayout = (patch: Partial<Omit<FreeformElementLayout, "breakpoint" | "elementId">>) =>
+    updateLayout({ ...patch, breakpoint });
 
   return (
     <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <p className="text-sm font-semibold text-slate-950">Freeform layout</p>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Freeform layout</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">8px snap 기준으로 위치와 크기를 저장합니다.</p>
+        </div>
+        <Select
+          className="h-8 w-28 text-xs"
+          onChange={(event) => setBreakpoint(event.target.value as FreeformElementLayout["breakpoint"])}
+          value={breakpoint}
+        >
+          <option value="desktop">desktop</option>
+          <option value="tablet">tablet</option>
+          <option value="mobile">mobile</option>
+        </Select>
+      </div>
       <div className="grid grid-cols-2 gap-2">
-        <NumberField label="X" onChange={(value) => updateLayout({ x: value })} value={layout.x} />
-        <NumberField label="Y" onChange={(value) => updateLayout({ y: value })} value={layout.y} />
-        <NumberField label="W" onChange={(value) => updateLayout({ w: value })} value={layout.w} />
-        <NumberField label="H" onChange={(value) => updateLayout({ h: value })} value={layout.h} />
-        <NumberField label="Z" onChange={(value) => updateLayout({ zIndex: value })} value={layout.zIndex ?? 1} />
+        <NumberField label="X" onChange={(value) => updateCurrentLayout({ x: value })} value={layout.x} />
+        <NumberField label="Y" onChange={(value) => updateCurrentLayout({ y: value })} value={layout.y} />
+        <NumberField label="W" onChange={(value) => updateCurrentLayout({ w: value })} value={layout.w} />
+        <NumberField label="H" onChange={(value) => updateCurrentLayout({ h: value })} value={layout.h} />
+        <NumberField label="Z" onChange={(value) => updateCurrentLayout({ zIndex: value })} value={layout.zIndex ?? 1} />
       </div>
     </div>
   );
