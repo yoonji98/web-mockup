@@ -1,11 +1,13 @@
 import { generateJsonWithOpenAI, MissingOpenAIKeyError } from "@/lib/ai";
 import { createGenerateSitePrompt } from "@/lib/prompts/generate-site-prompt";
 import type { GenerateSitePromptInput } from "@/lib/prompts/generate-site-prompt";
-import { normalizeSiteData } from "@/lib/site-data";
+import { createNavigationFromPages, createSitePageFromDefinition, normalizeSiteData } from "@/lib/site-data";
 import { createSiteDataFromTemplate, findTemplateForSiteType } from "@/lib/site-template";
+import { findPageDefinition } from "@/data/page-catalog";
 import { siteTemplates } from "@/data/site-templates";
 import { generateSiteRequestSchema, siteDataSchema } from "@/schemas/site-schema";
 import type { ElementNode } from "@/types/elements";
+import type { SiteData, SitePage } from "@/types/page";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -57,7 +59,7 @@ function createFallbackSite(input: GenerateSitePromptInput) {
   const template = findTemplateForSiteType(siteTemplates, input.siteType);
   const site = createSiteDataFromTemplate(template);
 
-  const normalizedSite = normalizeSiteData({
+  const normalizedSite = applySelectedCatalogPages(normalizeSiteData({
     ...site,
     name: input.businessName,
     brand: {
@@ -71,7 +73,7 @@ function createFallbackSite(input: GenerateSitePromptInput) {
       description: `${input.targetAudience}를 위한 ${input.industry} 웹사이트`,
       keywords: [input.industry, input.goal, input.tone],
     },
-  });
+  }), input);
 
   if (input.loginButtonMode !== "include") {
     return normalizedSite;
@@ -109,5 +111,43 @@ function createFallbackSite(input: GenerateSitePromptInput) {
         elements: [...slots.left, ...slots.center, ...slots.right, ...slots.mobile],
       },
     },
+  });
+}
+
+function applySelectedCatalogPages(site: SiteData, input: GenerateSitePromptInput) {
+  if (!input.selectedPageIds || input.selectedPageIds.length === 0) {
+    return site;
+  }
+
+  const pages: SitePage[] = [];
+  const seenIds = new Set<string>();
+
+  for (const pageId of input.selectedPageIds) {
+    if (seenIds.has(pageId)) {
+      continue;
+    }
+
+    const definition = findPageDefinition(pageId);
+
+    if (!definition) {
+      continue;
+    }
+
+    const page = createSitePageFromDefinition(definition, pages);
+    pages.push(page);
+    seenIds.add(pageId);
+  }
+
+  if (pages.length === 0) {
+    return site;
+  }
+
+  return normalizeSiteData({
+    ...site,
+    navigation: {
+      ...site.navigation,
+      items: createNavigationFromPages(pages),
+    },
+    pages,
   });
 }

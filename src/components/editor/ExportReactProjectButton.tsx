@@ -9,6 +9,30 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { canExportReactProject } from "@/lib/billing/entitlements";
 import { useEditorStore } from "@/store/editor-store";
+import type { ExportMode } from "@/types/export";
+
+const exportModeOptions: Array<{ description: string; label: string; value: ExportMode }> = [
+  {
+    label: "Static Website",
+    value: "static-website",
+    description: "정적 페이지, header/footer, elements, stylePack 중심",
+  },
+  {
+    label: "Clickable Prototype",
+    value: "clickable-prototype",
+    description: "mock data와 클릭 흐름 helper 포함, 실제 API 없음",
+  },
+  {
+    label: "Frontend Scaffold",
+    value: "frontend-scaffold",
+    description: "mock API, auth placeholder, form/table/dashboard 컴포넌트 포함",
+  },
+  {
+    label: "Full-stack Starter",
+    value: "full-stack-starter",
+    description: "Next.js/DB/Auth/Payment 연결 안내 placeholder 포함",
+  },
+];
 
 function readFileNameFromDisposition(disposition: string | null) {
   const match = disposition?.match(/filename="([^"]+)"/);
@@ -29,6 +53,7 @@ export function ExportReactProjectButton() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isPricingOpen, setIsPricingOpen] = useState(false);
+  const [mode, setMode] = useState<ExportMode>("static-website");
   const [projectName, setProjectName] = useState(defaultProjectName);
 
   const openExportDialog = () => {
@@ -61,6 +86,7 @@ export function ExportReactProjectButton() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          mode,
           site,
           projectName: nextProjectName,
         }),
@@ -101,7 +127,7 @@ export function ExportReactProjectButton() {
       </div>
 
       <Dialog
-        description="export될 Vite React 프로젝트 이름을 입력하세요."
+        description="export될 Vite React 프로젝트 이름과 생성 모드를 선택하세요."
         footer={
           <div className="grid gap-2 sm:flex sm:justify-end">
             <Button disabled={isLoading} onClick={() => setIsExportOpen(false)} variant="secondary">
@@ -131,6 +157,30 @@ export function ExportReactProjectButton() {
               value={projectName}
             />
           </label>
+          <div className="grid gap-2">
+            <p className="text-sm font-semibold text-slate-700">Export Mode</p>
+            <div className="grid gap-2">
+              {exportModeOptions.map((option) => {
+                const isSelected = mode === option.value;
+
+                return (
+                  <button
+                    className={`rounded-2xl border p-3 text-left transition ${
+                      isSelected
+                        ? "border-blue-400 bg-blue-50 ring-4 ring-blue-500/10"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                    key={option.value}
+                    onClick={() => setMode(option.value)}
+                    type="button"
+                  >
+                    <span className="block text-sm font-semibold text-slate-950">{option.label}</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {error ? <p className="rounded-xl bg-red-50 p-3 text-xs leading-5 text-red-600">{error}</p> : null}
         </div>
       </Dialog>

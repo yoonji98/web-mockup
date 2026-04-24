@@ -21,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FREEFORM_GRID_SIZE, FREEFORM_MIN_HEIGHT, FREEFORM_MIN_WIDTH } from "@/lib/freeform-layout";
 import { useEditorStore } from "@/store/editor-store";
 import type {
   ContainerNode,
@@ -222,11 +223,41 @@ function FreeformLayoutEditor({
         </Select>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <NumberField label="X" onChange={(value) => updateCurrentLayout({ x: value })} value={layout.x} />
-        <NumberField label="Y" onChange={(value) => updateCurrentLayout({ y: value })} value={layout.y} />
-        <NumberField label="W" onChange={(value) => updateCurrentLayout({ w: value })} value={layout.w} />
-        <NumberField label="H" onChange={(value) => updateCurrentLayout({ h: value })} value={layout.h} />
-        <NumberField label="Z" onChange={(value) => updateCurrentLayout({ zIndex: value })} value={layout.zIndex ?? 1} />
+        <NumberField
+          label="X"
+          min={0}
+          onChange={(value) => updateCurrentLayout({ x: value })}
+          step={FREEFORM_GRID_SIZE}
+          value={layout.x}
+        />
+        <NumberField
+          label="Y"
+          min={0}
+          onChange={(value) => updateCurrentLayout({ y: value })}
+          step={FREEFORM_GRID_SIZE}
+          value={layout.y}
+        />
+        <NumberField
+          label="W"
+          min={FREEFORM_MIN_WIDTH}
+          onChange={(value) => updateCurrentLayout({ w: value })}
+          step={FREEFORM_GRID_SIZE}
+          value={layout.w}
+        />
+        <NumberField
+          label="H"
+          min={FREEFORM_MIN_HEIGHT}
+          onChange={(value) => updateCurrentLayout({ h: value })}
+          step={FREEFORM_GRID_SIZE}
+          value={layout.h}
+        />
+        <NumberField
+          label="Z"
+          min={0}
+          onChange={(value) => updateCurrentLayout({ zIndex: value })}
+          step={1}
+          value={layout.zIndex ?? 1}
+        />
       </div>
     </div>
   );
@@ -234,17 +265,23 @@ function FreeformLayoutEditor({
 
 function NumberField({
   label,
+  min,
   onChange,
+  step,
   value,
 }: {
   label: string;
+  min?: number;
   onChange: (value: number) => void;
+  step?: number;
   value: number;
 }) {
   return (
     <Field label={label}>
       <Input
         onChange={(event) => onChange(Number(event.target.value))}
+        min={min}
+        step={step}
         type="number"
         value={value}
       />

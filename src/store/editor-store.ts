@@ -7,7 +7,13 @@ import { create } from "zustand";
 import { createDefaultBlock } from "@/data/block-defaults";
 import { createDefaultContainer, createDefaultElement } from "@/data/element-defaults";
 import { findPageDefinition, routePatternToSlug } from "@/data/page-catalog";
+import { FREEFORM_MIN_HEIGHT, FREEFORM_MIN_WIDTH, snapValue } from "@/lib/freeform-layout";
 import { projectPaymentStatusSchema, type ProjectPaymentStatus } from "@/lib/project-repository";
+import {
+  applyReferencePack as applyReferencePackToSite,
+  createSiteFromReferencePack,
+  type ApplyReferencePackOptions,
+} from "@/lib/reference-pack/apply-reference-pack";
 import {
   createDefaultSiteData,
   createNavigationFromPages,
@@ -128,6 +134,7 @@ type MoveElementInput = {
 
 type FreeformLayoutUpdate = Partial<Omit<FreeformElementLayout, "breakpoint" | "elementId">> & {
   breakpoint?: FreeformElementLayout["breakpoint"];
+  historyGroupKey?: string;
 };
 
 type EditorHistorySnapshot = {
@@ -181,6 +188,7 @@ type EditorState = {
   addBlock: (type: BlockType) => void;
   addBlockToCurrentPage: (type: BlockType) => void;
   insertBlockAt: (type: BlockType, index?: number) => void;
+  insertBlocksAt: (blocks: Block[], index?: number) => void;
   removeBlock: (id: string) => void;
   duplicateBlock: (id: string) => void;
   updateBlock: (id: string, props: BlockPropsUpdate) => void;
@@ -213,6 +221,8 @@ type EditorState = {
   setPalette: (palette: Palette) => void;
   setStylePack: (stylePack: StylePack) => void;
   applyStylePack: (stylePack: StylePack) => void;
+  applyReferencePack: (packId: string, options?: ApplyReferencePackOptions) => void;
+  startSiteFromReferencePack: (packId: string, options?: ApplyReferencePackOptions) => void;
   setNavigation: (navigation: SiteData["navigation"]) => void;
   saveCustomPalette: (palette: Palette) => void;
   createCustomPalette: (input: CustomPaletteInput) => void;
@@ -291,6 +301,16 @@ function updateBlockProps(block: Block, props: BlockPropsUpdate): Block {
       return {
         ...block,
         props: { ...block.props, ...(props as Partial<PortfolioBlockProps>) },
+      };
+    case "collectionList":
+      return {
+        ...block,
+        props: { ...block.props, ...(props as Partial<CollectionListBlockProps>) },
+      };
+    case "collectionDetail":
+      return {
+        ...block,
+        props: { ...block.props, ...(props as Partial<CollectionDetailBlockProps>) },
       };
     case "testimonials":
       return {
@@ -373,6 +393,13 @@ function clampInsertIndex(length: number, index?: number): number {
 function insertArrayItem<TItem>(items: TItem[], item: TItem, index?: number): TItem[] {
   const nextItems = [...items];
   nextItems.splice(clampInsertIndex(nextItems.length, index), 0, item);
+
+  return nextItems;
+}
+
+function insertArrayItems<TItem>(items: TItem[], nextItemsToInsert: TItem[], index?: number): TItem[] {
+  const nextItems = [...items];
+  nextItems.splice(clampInsertIndex(nextItems.length, index), 0, ...nextItemsToInsert);
 
   return nextItems;
 }
@@ -503,8 +530,9 @@ function restoreHistorySnapshot(snapshot: EditorHistorySnapshot) {
 
 function pushHistory(state: EditorState, groupKey?: string) {
   const now = Date.now();
+  const groupWindowMs = groupKey?.startsWith("freeform-gesture:") ? 30_000 : 1000;
 
-  if (groupKey && state.historyGroupKey === groupKey && now - state.historyGroupAt < 1000) {
+  if (groupKey && state.historyGroupKey === groupKey && now - state.historyGroupAt < groupWindowMs) {
     return {
       historyGroupAt: now,
     };
@@ -1048,6 +1076,18 @@ function insertElementIntoSiteContainer(
 
 function snapFreeformValue(value: number, snap = 8): number {
   return Math.max(0, Math.round(value / snap) * snap);
+}
+
+function finiteFreeformNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function sanitizeFreeformPosition(value: number | undefined, fallback: number): number {
+  return Math.max(0, snapValue(finiteFreeformNumber(value, fallback)));
+}
+
+function sanitizeFreeformSize(value: number | undefined, fallback: number, minSize: number): number {
+  return Math.max(minSize, snapValue(finiteFreeformNumber(value, fallback)));
 }
 
 function defaultFreeformSize(type: ElementNodeType) {
@@ -1617,6 +1657,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return replaceCurrentPageBlocks(state, insertArrayItem(state.page.blocks, block, index), block.id);
     }),
+  insertBlocksAt: (blocks, index) =>
+    set((state) => {
+      if (blocks.length === 0) {
+        return state;
+      }
+
+      const nextBlocks = insertArrayItems(state.page.blocks, blocks, index);
+
+      return replaceCurrentPageBlocks(state, nextBlocks, blocks[0]?.id ?? state.selectedBlockId);
+    }),
   removeBlock: (id) =>
     set((state) => {
       const blocks = state.page.blocks.filter((block) => block.id !== id);
@@ -2095,11 +2145,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         const nextLayout: FreeformElementLayout = {
           breakpoint,
           elementId,
-          h: update.h ?? existingLayout?.h ?? fallbackLayout?.h ?? 120,
-          w: update.w ?? existingLayout?.w ?? fallbackLayout?.w ?? 280,
-          x: update.x ?? existingLayout?.x ?? fallbackLayout?.x ?? 80,
-          y: update.y ?? existingLayout?.y ?? fallbackLayout?.y ?? 80,
-          zIndex: update.zIndex ?? existingLayout?.zIndex ?? fallbackLayout?.zIndex ?? 1,
+          h: sanitizeFreeformSize(
+            update.h,
+            existingLayout?.h ?? fallbackLayout?.h ?? 120,
+            FREEFORM_MIN_HEIGHT,
+          ),
+          w: sanitizeFreeformSize(
+            update.w,
+            existingLayout?.w ?? fallbackLayout?.w ?? 280,
+            FREEFORM_MIN_WIDTH,
+          ),
+          x: sanitizeFreeformPosition(update.x, existingLayout?.x ?? fallbackLayout?.x ?? 80),
+          y: sanitizeFreeformPosition(update.y, existingLayout?.y ?? fallbackLayout?.y ?? 80),
+          zIndex: finiteFreeformNumber(update.zIndex, existingLayout?.zIndex ?? fallbackLayout?.zIndex ?? 1),
         };
         const hasExistingLayout = block.props.layouts.some(
           (item) => item.elementId === elementId && item.breakpoint === breakpoint,
@@ -2119,7 +2177,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       });
 
       return {
-        ...replaceCurrentPageBlocks(state, blocks, blockId, `freeform-layout:${elementId}`),
+        ...replaceCurrentPageBlocks(state, blocks, blockId, update.historyGroupKey ?? `freeform-layout:${elementId}`),
         selectedBlockId: blockId,
         selectedElementId: elementId,
         selectedInsertionTarget: { blockId, kind: "block" },
@@ -2253,6 +2311,38 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       };
     }),
   applyStylePack: (stylePack) => get().setStylePack(stylePack),
+  applyReferencePack: (packId, options) =>
+    set((state) => {
+      const site = applyReferencePackToSite(state.site, packId, options);
+      const homePage = site.pages.find((page) => page.type === "home") ?? site.pages[0];
+      const selectedBlockId = homePage ? getInitialSelectedBlockId(sitePageToPageData(site, homePage)) : null;
+
+      return {
+        ...syncCurrentPageState(site, homePage?.id ?? state.currentPageId, selectedBlockId),
+        ...pushHistory(state),
+        selectedContainerId: null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: selectedBlockId ? { blockId: selectedBlockId, kind: "block" } : null,
+        isDirty: true,
+      };
+    }),
+  startSiteFromReferencePack: (packId, options) =>
+    set((state) => {
+      const site = createSiteFromReferencePack(packId, options);
+      const homePage = site.pages.find((page) => page.type === "home") ?? site.pages[0];
+      const selectedBlockId = homePage ? getInitialSelectedBlockId(sitePageToPageData(site, homePage)) : null;
+
+      return {
+        ...syncCurrentPageState(site, homePage?.id ?? "home", selectedBlockId),
+        ...pushHistory(state),
+        selectedContainerId: null,
+        selectedElementId: null,
+        selectedHeaderSlot: null,
+        selectedInsertionTarget: selectedBlockId ? { blockId: selectedBlockId, kind: "block" } : null,
+        isDirty: true,
+      };
+    }),
   setNavigation: (navigation) =>
     set((state) => {
       const site = normalizeSiteData({

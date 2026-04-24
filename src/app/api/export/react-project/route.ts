@@ -4,9 +4,11 @@ import { z } from "zod";
 import { generateReactProjectZip } from "@/lib/export/react-project-generator";
 import { pageDataSchema } from "@/schemas/page-schema";
 import { siteDataSchema } from "@/schemas/site-schema";
+import { exportModes } from "@/types/export";
 
 const exportRequestSchema = z
   .object({
+    mode: z.enum(exportModes).optional(),
     page: pageDataSchema.optional(),
     projectName: z.string().min(1),
     site: siteDataSchema.optional(),

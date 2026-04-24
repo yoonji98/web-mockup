@@ -75,7 +75,18 @@ export function EditorDndContext({ children }: EditorDndContextProps) {
     const dropData = getDropData(event.over?.data.current);
     setActiveData(null);
 
-    if (!dragData || !dropData) {
+    if (!dragData) {
+      return;
+    }
+
+    if (!dropData) {
+      if (dragData.dragType === "libraryElement") {
+        createContainerSectionWithElement(dragData.elementType);
+        showMessage(`${elementLabels[dragData.elementType]} 섹션을 만들었습니다.`);
+        return;
+      }
+
+      showMessage("드롭할 위치를 찾지 못했습니다.");
       return;
     }
 

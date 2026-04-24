@@ -3,6 +3,7 @@ import type {
   StyleRadius,
 } from "@/types/style";
 import type { CollectionDefinition } from "@/types/collections";
+import type { ReferencePack } from "@/types/reference-pack";
 import type { BlockElementContent, FreeformElementLayout, HeaderSlots } from "@/types/elements";
 export {
   backgroundStyleTypes,
@@ -67,6 +68,11 @@ export const siteTypes = [
   "landing",
   "business",
   "portfolio",
+  "saas",
+  "content",
+  "community",
+  "government",
+  "admin",
   "cafe",
   "clinic",
   "education",
@@ -483,6 +489,7 @@ export type SiteData = {
   };
   pages: SitePage[];
   collections?: CollectionDefinition[];
+  referencePack?: ReferencePack;
   globalSections?: {
     header?: HeaderConfig;
     footer?: FooterConfig;

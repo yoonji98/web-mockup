@@ -1,4 +1,6 @@
 import { stylePacks } from "@/data/style-packs";
+import { featureKits } from "@/data/feature-kits";
+import { pageCatalog } from "@/data/page-catalog";
 import { blockTypes, blockVariantOptions, sitePageTypes, siteTypes } from "@/types/page";
 import { containerNodeTypes, elementNodeTypes, headerSlotTypes } from "@/types/elements";
 import type { z } from "zod";
@@ -7,6 +9,13 @@ import type { generateSiteRequestSchema } from "@/schemas/site-schema";
 export type GenerateSitePromptInput = z.infer<typeof generateSiteRequestSchema>;
 
 export function createGenerateSitePrompt(input: GenerateSitePromptInput) {
+  const selectedPageIds = input.selectedPageIds ?? [];
+  const selectedFeatureKitIds = input.selectedFeatureKitIds ?? [];
+  const selectedPageDefinitions = selectedPageIds.length
+    ? pageCatalog.filter((page) => selectedPageIds.includes(page.id))
+    : pageCatalog.filter((page) => page.recommendedFor.includes(input.siteType)).slice(0, 8);
+  const selectedFeatureKits = featureKits.filter((featureKit) => selectedFeatureKitIds.includes(featureKit.id));
+
   return {
     instructions: [
       "You are an expert Korean website strategist, information architect, and conversion copywriter.",
@@ -17,6 +26,8 @@ export function createGenerateSitePrompt(input: GenerateSitePromptInput) {
       "Use concise copy. Avoid long sentences.",
       "Use only supported site types, page types, block types, and block variants from the provided lists.",
       "Use only supported element types and container types from the provided lists.",
+      "Choose pages from the provided selectedPageCatalog. Do not invent page IDs, routes, or page purposes.",
+      "Use Collection List or Collection Detail blocks when a selected page has a dataModel.",
       "Use an existing stylePackId from availableStylePacks whenever possible.",
       "Build header with slots: left logo, center menu, right CTA. Add loginButton when the selected site type or loginButtonMode needs it.",
       "For custom layout sections, create containers and elements. Do not put React code or HTML in props.",
@@ -41,6 +52,12 @@ export function createGenerateSitePrompt(input: GenerateSitePromptInput) {
             "If menuMode is anchor, prefer one-page #section links. If multi-page, use /slug links. If auto, choose the best structure.",
           loginButton:
             "If loginButtonMode is include, add loginButton to header right slot. If hide, omit loginButton. If auto, add it for shop, education, app, SaaS, or signup-focused goals.",
+          generationLevel:
+            "If generationLevel is beautiful-website, prioritize static content and visual polish. If clickable-prototype, include routes and clickable mock flows. If frontend-scaffold, include clear routes and mock collection data. If full-stack, include pages requiring auth/payment/admin but still return SiteData only.",
+          pageCatalog:
+            "Use selectedPageCatalog as the source of truth. The final pages array should match selectedPageCatalog unless pageCount is one-page.",
+          collections:
+            "Include collections with sampleData for products, posts, projects, services, notices, and jobs when related dataModel pages exist.",
         },
         supported: {
           siteTypes,
@@ -52,6 +69,27 @@ export function createGenerateSitePrompt(input: GenerateSitePromptInput) {
           headerSlotTypes,
           stylePackIds: stylePacks.map((stylePack) => stylePack.id),
         },
+        selectedFeatureKits: selectedFeatureKits.map((featureKit) => ({
+          id: featureKit.id,
+          name: featureKit.name,
+          includedPageIds: featureKit.includedPageIds,
+          recommendedPageIds: featureKit.recommendedPageIds,
+          requiredFeatureKeys: featureKit.requiredFeatureKeys,
+        })),
+        selectedPageCatalog: selectedPageDefinitions.map((page) => ({
+          id: page.id,
+          name: page.name,
+          category: page.category,
+          pageKind: page.pageKind,
+          complexity: page.complexity,
+          routePattern: page.routePattern,
+          defaultBlocks: page.defaultBlocks,
+          dataModel: page.dataModel,
+          requires: page.requires,
+          canBeStaticMockup: page.canBeStaticMockup,
+          canBeFrontendScaffold: page.canBeFrontendScaffold,
+          canBeFullStack: page.canBeFullStack,
+        })),
         availableStylePacks: stylePacks.map((stylePack) => ({
           id: stylePack.id,
           name: stylePack.name,
@@ -99,6 +137,15 @@ export function createGenerateSitePrompt(input: GenerateSitePromptInput) {
               type: "one supported page type",
               seo: { title: "string", description: "string" },
               blocks: "array of supported blocks",
+            },
+          ],
+          collections: [
+            {
+              id: "string",
+              name: "string",
+              itemName: "string",
+              fields: [{ id: "string", name: "string", type: "text | textarea | number | image | date | boolean | select | tags | url" }],
+              sampleData: [{ id: "string", slug: "string" }],
             },
           ],
           globalSections: {

@@ -22,6 +22,8 @@ import { HeaderBuilderPanel } from "@/components/editor/HeaderBuilderPanel";
 import { LayerTreePanel } from "@/components/editor/LayerTreePanel";
 import { NavigationPanel } from "@/components/editor/NavigationPanel";
 import { PagesPanel } from "@/components/editor/PagesPanel";
+import { PatternLibraryPanel } from "@/components/editor/PatternLibraryPanel";
+import { ReferencePackGallery } from "@/components/editor/ReferencePackGallery";
 import { SiteTemplateGallery } from "@/components/editor/SiteTemplateGallery";
 import { StylePackPanel } from "@/components/editor/StylePackPanel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -110,13 +112,15 @@ export function LeftSidebar() {
 
         <TabsContent className="grid gap-5" value="pages">
           <PagesPanel />
+          <ReferencePackGallery />
           <FeatureKitPanel />
           <SiteTemplateGallery />
           <NavigationPanel />
           <AISiteWizard />
         </TabsContent>
 
-        <TabsContent value="blocks">
+        <TabsContent className="grid gap-5" value="blocks">
+          <PatternLibraryPanel />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

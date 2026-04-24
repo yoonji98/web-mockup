@@ -1,6 +1,8 @@
 import type { SiteData } from "@/types/page";
+import type { ExportMode } from "@/types/export";
 
 type ProjectTemplateInput = {
+  mode: ExportMode;
   projectName: string;
   site: SiteData;
 };
@@ -10,8 +12,8 @@ export type ProjectFile = {
   path: string;
 };
 
-export function createReactProjectFiles({ projectName, site }: ProjectTemplateInput): ProjectFile[] {
-  return [
+export function createReactProjectFiles({ mode, projectName, site }: ProjectTemplateInput): ProjectFile[] {
+  const files: ProjectFile[] = [
     { path: "package.json", content: packageJsonTemplate(projectName) },
     { path: "index.html", content: indexHtmlTemplate(site.seo.title) },
     { path: "vite.config.ts", content: viteConfigTemplate },
@@ -21,6 +23,7 @@ export function createReactProjectFiles({ projectName, site }: ProjectTemplateIn
     { path: "postcss.config.js", content: postcssConfigTemplate },
     { path: "src/main.tsx", content: mainTemplate },
     { path: "src/App.tsx", content: appTemplate },
+    { path: "src/data/export-mode.ts", content: exportModeTemplate(mode) },
     { path: "src/data/site.json", content: `${JSON.stringify(site, null, 2)}\n` },
     { path: "src/types/site.ts", content: siteTypesTemplate },
     { path: "src/components/site/SiteRenderer.tsx", content: siteRendererTemplate },
@@ -45,6 +48,8 @@ export function createReactProjectFiles({ projectName, site }: ProjectTemplateIn
     { path: "src/components/blocks/AboutBlock.tsx", content: aboutBlockTemplate },
     { path: "src/components/blocks/ServicesBlock.tsx", content: servicesBlockTemplate },
     { path: "src/components/blocks/PortfolioBlock.tsx", content: portfolioBlockTemplate },
+    { path: "src/components/blocks/CollectionListBlock.tsx", content: collectionListBlockTemplate },
+    { path: "src/components/blocks/CollectionDetailBlock.tsx", content: collectionDetailBlockTemplate },
     { path: "src/components/blocks/TestimonialsBlock.tsx", content: testimonialsBlockTemplate },
     { path: "src/components/blocks/PricingBlock.tsx", content: pricingBlockTemplate },
     { path: "src/components/blocks/FaqBlock.tsx", content: faqBlockTemplate },
@@ -52,8 +57,44 @@ export function createReactProjectFiles({ projectName, site }: ProjectTemplateIn
     { path: "src/components/blocks/ContactBlock.tsx", content: contactBlockTemplate },
     { path: "src/components/blocks/FooterBlock.tsx", content: footerBlockTemplate },
     { path: "src/styles/globals.css", content: globalsCssTemplate },
-    { path: "README.md", content: readmeTemplate(projectName) },
+    { path: "README.md", content: readmeTemplate(projectName, mode) },
   ];
+
+  return [...files, ...modeSpecificFiles(mode)];
+}
+
+function modeSpecificFiles(mode: ExportMode): ProjectFile[] {
+  if (mode === "clickable-prototype") {
+    return [
+      { path: "src/lib/prototype-actions.ts", content: prototypeActionsTemplate },
+      { path: "src/data/mock-data.ts", content: mockDataTemplate },
+    ];
+  }
+
+  if (mode === "frontend-scaffold") {
+    return [
+      { path: "src/lib/prototype-actions.ts", content: prototypeActionsTemplate },
+      { path: "src/data/mock-data.ts", content: mockDataTemplate },
+      { path: "src/lib/mock-api.ts", content: mockApiTemplate },
+      { path: "src/lib/auth-placeholder.tsx", content: authPlaceholderTemplate },
+      { path: "src/components/scaffold/MockDashboard.tsx", content: mockDashboardTemplate },
+      { path: "src/components/scaffold/MockForm.tsx", content: mockFormTemplate },
+      { path: "src/components/scaffold/MockTable.tsx", content: mockTableTemplate },
+    ];
+  }
+
+  if (mode === "full-stack-starter") {
+    return [
+      { path: "docs/FULL_STACK_STARTER.md", content: fullStackStarterTemplate },
+      { path: "src/lib/full-stack-placeholders.ts", content: fullStackPlaceholdersTemplate },
+    ];
+  }
+
+  return [];
+}
+
+function exportModeTemplate(mode: ExportMode) {
+  return `export const exportMode = ${JSON.stringify(mode)} as const;\n`;
 }
 
 function packageJsonTemplate(projectName: string) {
@@ -188,7 +229,7 @@ import { SiteRenderer } from "./components/site/SiteRenderer";
 import siteJson from "./data/site.json";
 import type { SiteData } from "./types/site";
 
-const site = siteJson as SiteData;
+const site = siteJson as unknown as SiteData;
 const homePage = site.pages.find((page) => page.type === "home") ?? site.pages[0];
 
 export default function App() {
@@ -207,6 +248,244 @@ export default function App() {
     </BrowserRouter>
   );
 }
+`;
+
+const prototypeActionsTemplate = `export type PrototypeAction =
+  | { type: "navigate"; to: string }
+  | { type: "submit-form"; formId: string }
+  | { type: "toggle"; key: string };
+
+const storageKey = "prototype-actions";
+
+export function recordPrototypeAction(action: PrototypeAction) {
+  if (typeof window === "undefined") return;
+  const actions = readPrototypeActions();
+  window.localStorage.setItem(storageKey, JSON.stringify([...actions, { ...action, at: new Date().toISOString() }]));
+}
+
+export function readPrototypeActions(): Array<PrototypeAction & { at?: string }> {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearPrototypeActions() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(storageKey);
+}
+`;
+
+const mockDataTemplate = `import siteJson from "./site.json";
+import type { CollectionDefinition, SiteData } from "../types/site";
+
+const site = siteJson as unknown as SiteData;
+
+export const mockCollections: CollectionDefinition[] = site.collections ?? [];
+
+export function getMockCollection(collectionId: string) {
+  return mockCollections.find((collection) => collection.id === collectionId) ?? null;
+}
+
+export function listMockItems(collectionId: string) {
+  return getMockCollection(collectionId)?.sampleData ?? [];
+}
+
+export function getMockItem(collectionId: string, itemId: string) {
+  return listMockItems(collectionId).find((item) => item.id === itemId || item.slug === itemId) ?? null;
+}
+`;
+
+const mockApiTemplate = `import { getMockItem, listMockItems } from "../data/mock-data";
+
+const delay = (ms = 180) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+export async function mockGetCollection(collectionId: string) {
+  await delay();
+  return listMockItems(collectionId);
+}
+
+export async function mockGetItem(collectionId: string, itemId: string) {
+  await delay();
+  return getMockItem(collectionId, itemId);
+}
+
+export async function mockSubmitForm<TData extends Record<string, unknown>>(formId: string, data: TData) {
+  await delay();
+  return {
+    data,
+    formId,
+    id: Date.now().toString(),
+    ok: true,
+  };
+}
+`;
+
+const authPlaceholderTemplate = `import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+
+type MockUser = {
+  email: string;
+  name: string;
+  role: "guest" | "member" | "admin";
+};
+
+type AuthContextValue = {
+  login: (email?: string) => void;
+  logout: () => void;
+  user: MockUser | null;
+};
+
+const AuthPlaceholderContext = createContext<AuthContextValue | null>(null);
+
+export function AuthPlaceholderProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<MockUser | null>(null);
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      login: (email = "demo@example.com") => setUser({ email, name: "Demo User", role: "member" }),
+      logout: () => setUser(null),
+      user,
+    }),
+    [user],
+  );
+
+  return <AuthPlaceholderContext.Provider value={value}>{children}</AuthPlaceholderContext.Provider>;
+}
+
+export function useAuthPlaceholder() {
+  const value = useContext(AuthPlaceholderContext);
+
+  if (!value) {
+    throw new Error("useAuthPlaceholder must be used inside AuthPlaceholderProvider.");
+  }
+
+  return value;
+}
+`;
+
+const mockDashboardTemplate = `import { mockCollections } from "../../data/mock-data";
+import type { ThemeColors } from "../../types/site";
+
+export function MockDashboard({ colors }: { colors: ThemeColors }) {
+  const totalItems = mockCollections.reduce((count, collection) => count + collection.sampleData.length, 0);
+
+  return (
+    <section className="grid gap-4 md:grid-cols-3">
+      <MetricCard colors={colors} label="Collections" value={String(mockCollections.length)} />
+      <MetricCard colors={colors} label="Mock rows" value={String(totalItems)} />
+      <MetricCard colors={colors} label="API mode" value="mock" />
+    </section>
+  );
+}
+
+function MetricCard({ colors, label, value }: { colors: ThemeColors; label: string; value: string }) {
+  return (
+    <article className="rounded-2xl border p-5" style={{ backgroundColor: colors.surface, borderColor: colors.border ?? colors.accent }}>
+      <p className="text-sm font-semibold" style={{ color: colors.mutedText }}>{label}</p>
+      <p className="mt-3 text-3xl font-semibold" style={{ color: colors.text }}>{value}</p>
+    </article>
+  );
+}
+`;
+
+const mockFormTemplate = `import { useState } from "react";
+
+import { mockSubmitForm } from "../../lib/mock-api";
+import type { ThemeColors } from "../../types/site";
+
+export function MockForm({ colors, formId = "lead" }: { colors: ThemeColors; formId?: string }) {
+  const [status, setStatus] = useState("idle");
+
+  return (
+    <form
+      className="grid gap-3 rounded-2xl border p-5"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setStatus("submitting");
+        const formData = new FormData(event.currentTarget);
+        await mockSubmitForm(formId, Object.fromEntries(formData.entries()));
+        setStatus("submitted");
+      }}
+      style={{ backgroundColor: colors.surface, borderColor: colors.border ?? colors.accent }}
+    >
+      <input className="h-11 rounded-xl border px-3 text-sm" name="name" placeholder="Name" />
+      <input className="h-11 rounded-xl border px-3 text-sm" name="email" placeholder="Email" />
+      <button className="rounded-xl px-5 py-3 text-sm font-semibold text-white" style={{ backgroundColor: colors.primary }} type="submit">
+        {status === "submitting" ? "Submitting..." : "Submit"}
+      </button>
+      {status === "submitted" ? <p className="text-sm font-semibold" style={{ color: colors.primary }}>Mock submit complete.</p> : null}
+    </form>
+  );
+}
+`;
+
+const mockTableTemplate = `import { listMockItems } from "../../data/mock-data";
+import type { ThemeColors } from "../../types/site";
+
+export function MockTable({ collectionId, colors }: { collectionId: string; colors: ThemeColors }) {
+  const rows = listMockItems(collectionId);
+  const columns = Object.keys(rows[0] ?? {}).slice(0, 5);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border" style={{ borderColor: colors.border ?? colors.accent }}>
+      <table className="w-full text-left text-sm">
+        <thead style={{ backgroundColor: colors.background, color: colors.text }}>
+          <tr>{columns.map((column) => <th className="px-4 py-3" key={column}>{column}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr className="border-t" key={String(row.id ?? index)} style={{ borderColor: colors.border ?? colors.accent }}>
+              {columns.map((column) => <td className="px-4 py-3" key={column} style={{ color: colors.mutedText }}>{String(row[column] ?? "-")}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+`;
+
+const fullStackPlaceholdersTemplate = `export const fullStackIntegrationChecklist = [
+  "Replace site.json persistence with database records.",
+  "Connect auth routes and protect dashboard/settings pages.",
+  "Replace mock collection reads with API handlers.",
+  "Connect payment provider callbacks for checkout pages.",
+  "Add server-side validation for all forms.",
+] as const;
+
+export function getFullStackIntegrationChecklist() {
+  return [...fullStackIntegrationChecklist];
+}
+`;
+
+const fullStackStarterTemplate = `# Full-stack Starter Placeholder
+
+This export mode keeps the generated project as a Vite React app and adds integration notes for a later Next.js full-stack export.
+
+## Recommended Next Steps
+
+1. Move \`src/data/site.json\` into a database-backed content model.
+2. Add Auth.js, Clerk, or another auth provider for login, profile, dashboard, and admin routes.
+3. Replace \`collections.sampleData\` with API handlers backed by products, posts, projects, services, notices, and jobs tables.
+4. Connect payment screens to Stripe, Toss Payments, or your chosen provider.
+5. Validate all forms on the server before persistence.
+
+## Suggested Database Tables
+
+- sites
+- pages
+- collections
+- collection_items
+- users
+- orders
+- payments
+- form_submissions
+
+This file is intentionally documentation-only for now. The full Next.js starter export is deferred.
 `;
 
 const siteTypesTemplate = `export type Radius = "none" | "sm" | "md" | "lg" | "xl" | "2xl";
@@ -330,6 +609,24 @@ export type FreeformElementLayout = {
   zIndex?: number;
 };
 
+export type CollectionFieldType = "text" | "textarea" | "number" | "image" | "date" | "boolean" | "select" | "tags" | "url";
+
+export type FieldDefinition = {
+  id: string;
+  name: string;
+  options?: string[];
+  required?: boolean;
+  type: CollectionFieldType;
+};
+
+export type CollectionDefinition = {
+  fields: FieldDefinition[];
+  id: string;
+  itemName: string;
+  name: string;
+  sampleData: Record<string, unknown>[];
+};
+
 export type BlockElementContent = {
   containers?: ContainerNode[];
   elements?: ElementNode[];
@@ -362,6 +659,7 @@ export type SiteData = {
     cta?: NavItem;
   };
   pages: SitePage[];
+  collections?: CollectionDefinition[];
   globalSections?: {
     header?: {
       containers?: ContainerNode[];
@@ -428,6 +726,25 @@ export type PortfolioBlock = BlockBase<"portfolio", {
   title: string;
   subtitle: string;
   projects: Array<{ title: string; description: string; category: string; imagePrompt?: string }>;
+}>;
+
+export type CollectionListBlock = BlockBase<"collectionList", {
+  collectionId: string;
+  detailSlug?: string;
+  emptyText?: string;
+  itemLimit?: number;
+  showFields?: string[];
+  subtitle?: string;
+  title: string;
+}>;
+
+export type CollectionDetailBlock = BlockBase<"collectionDetail", {
+  backLabel?: string;
+  collectionId: string;
+  itemId?: string;
+  showFields?: string[];
+  subtitle?: string;
+  title: string;
 }>;
 
 export type TestimonialsBlock = BlockBase<"testimonials", {
@@ -497,6 +814,8 @@ export type Block =
   | AboutBlock
   | ServicesBlock
   | PortfolioBlock
+  | CollectionListBlock
+  | CollectionDetailBlock
   | TestimonialsBlock
   | PricingBlock
   | FaqBlock
@@ -566,6 +885,7 @@ export function SiteRenderer({ currentPage, site }: SiteRendererProps) {
         {currentPage.blocks.filter((block) => block.type !== "footer").map((block) => (
           <BlockRenderer
             block={block}
+            collections={site.collections}
             colors={colors}
             key={block.id}
             radius={site.theme.radius}
@@ -1033,6 +1353,8 @@ export function FreeformRenderer({ colors, elements = [], layouts = [], radius, 
 `;
 
 const blockRendererTemplate = `import { AboutBlock } from "./AboutBlock";
+import { CollectionDetailBlock } from "./CollectionDetailBlock";
+import { CollectionListBlock } from "./CollectionListBlock";
 import { ContactBlock } from "./ContactBlock";
 import { CtaBlock } from "./CtaBlock";
 import { FaqBlock } from "./FaqBlock";
@@ -1045,17 +1367,18 @@ import { ServicesBlock } from "./ServicesBlock";
 import { TestimonialsBlock } from "./TestimonialsBlock";
 import { ElementBlockRenderer } from "../elements/ElementRenderer";
 import { FreeformRenderer } from "../layout/FreeformRenderer";
-import type { Block, Radius, Shadow, Spacing, ThemeColors } from "../../types/site";
+import type { Block, CollectionDefinition, Radius, Shadow, Spacing, ThemeColors } from "../../types/site";
 
 type BlockRendererProps = {
   block: Block;
+  collections?: CollectionDefinition[];
   colors: ThemeColors;
   radius: Radius;
   shadow: Shadow;
   spacing: Spacing;
 };
 
-export function BlockRenderer({ block, colors, radius, shadow, spacing }: BlockRendererProps) {
+export function BlockRenderer({ block, collections, colors, radius, shadow, spacing }: BlockRendererProps) {
   if (block.type === "freeformSection") {
     return (
       <section className="px-6 py-16 md:px-10" style={{ backgroundColor: block.props.background }}>
@@ -1081,6 +1404,10 @@ export function BlockRenderer({ block, colors, radius, shadow, spacing }: BlockR
       return <ServicesBlock block={block} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />;
     case "portfolio":
       return <PortfolioBlock block={block} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />;
+    case "collectionList":
+      return <CollectionListBlock block={block} collections={collections} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />;
+    case "collectionDetail":
+      return <CollectionDetailBlock block={block} collections={collections} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />;
     case "testimonials":
       return <TestimonialsBlock block={block} colors={colors} radius={radius} shadow={shadow} spacing={spacing} />;
     case "pricing":
@@ -1181,6 +1508,128 @@ export function PortfolioBlock({ block, colors, radius, shadow, spacing }: Block
 }
 `;
 
+const collectionListBlockTemplate = `import { radiusClassName, shadowClassName, spacingClassName, type BlockComponentProps } from "./block-types";
+import type { CollectionDefinition, CollectionListBlock as CollectionListBlockType, FieldDefinition } from "../../types/site";
+
+type CollectionListBlockProps = BlockComponentProps<CollectionListBlockType> & {
+  collections?: CollectionDefinition[];
+};
+
+export function CollectionListBlock({ block, collections = [], colors, radius, shadow, spacing }: CollectionListBlockProps) {
+  const collection = collections.find((item) => item.id === block.props.collectionId);
+  const items = (collection?.sampleData ?? []).slice(0, block.props.itemLimit ?? 6);
+  const fields = pickFields(collection, block.props.showFields);
+
+  return (
+    <section className={spacingClassName[spacing] + " px-5"}>
+      <div className="mx-auto max-w-6xl">
+        <div className="max-w-3xl">
+          <p className="mb-3 text-sm font-semibold" style={{ color: colors.primary }}>{collection?.name ?? "Collection"}</p>
+          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl" style={{ color: colors.text }}>{block.props.title}</h2>
+          {block.props.subtitle ? <p className="mt-4 leading-7" style={{ color: colors.mutedText }}>{block.props.subtitle}</p> : null}
+        </div>
+        {items.length === 0 ? (
+          <div className={radiusClassName[radius] + " mt-8 border p-6 text-sm"} style={{ backgroundColor: colors.surface, borderColor: colors.border ?? colors.accent, color: colors.mutedText }}>
+            {block.props.emptyText ?? "표시할 데이터가 없습니다."}
+          </div>
+        ) : (
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
+            {items.map((item, index) => <CollectionCard colors={colors} fields={fields} item={item} key={String(item.id ?? item.slug ?? index)} radius={radius} shadow={shadow} />)}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CollectionCard({ colors, fields, item, radius, shadow }: { colors: CollectionListBlockProps["colors"]; fields: FieldDefinition[]; item: Record<string, unknown>; radius: CollectionListBlockProps["radius"]; shadow: CollectionListBlockProps["shadow"] }) {
+  return (
+    <article className={radiusClassName[radius] + " " + shadowClassName[shadow] + " overflow-hidden border"} style={{ backgroundColor: colors.surface, borderColor: colors.border ?? colors.accent }}>
+      {item.image ? <div className="flex h-36 items-end p-4 text-xs font-semibold" style={{ backgroundColor: colors.background, color: colors.mutedText }}>{stringifyValue(item.image)}</div> : null}
+      <div className="p-5">
+        <h3 className="text-lg font-semibold" style={{ color: colors.text }}>{stringifyValue(item.title ?? item.name ?? item.id)}</h3>
+        <dl className="mt-4 grid gap-3">
+          {fields.filter((field) => field.id !== "title" && field.id !== "image").map((field) => (
+            <div className="grid gap-1" key={field.id}>
+              <dt className="text-xs font-semibold" style={{ color: colors.primary }}>{field.name}</dt>
+              <dd className="text-sm leading-6" style={{ color: colors.mutedText }}>{stringifyValue(item[field.id])}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </article>
+  );
+}
+
+function pickFields(collection: CollectionDefinition | undefined, showFields: string[] | undefined) {
+  if (!collection) return [];
+  if (!showFields || showFields.length === 0) return collection.fields.slice(0, 4);
+  return showFields.map((fieldId) => collection.fields.find((field) => field.id === fieldId)).filter((field): field is FieldDefinition => Boolean(field));
+}
+
+function stringifyValue(value: unknown) {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "예" : "아니오";
+  if (value === null || typeof value === "undefined") return "-";
+  return String(value);
+}
+`;
+
+const collectionDetailBlockTemplate = `import { radiusClassName, shadowClassName, spacingClassName, type BlockComponentProps } from "./block-types";
+import type { CollectionDefinition, CollectionDetailBlock as CollectionDetailBlockType, FieldDefinition } from "../../types/site";
+
+type CollectionDetailBlockProps = BlockComponentProps<CollectionDetailBlockType> & {
+  collections?: CollectionDefinition[];
+};
+
+export function CollectionDetailBlock({ block, collections = [], colors, radius, shadow, spacing }: CollectionDetailBlockProps) {
+  const collection = collections.find((item) => item.id === block.props.collectionId);
+  const item = findItem(collection, block.props.itemId);
+  const fields = pickFields(collection, block.props.showFields);
+
+  if (!collection || !item) {
+    return <section className={spacingClassName[spacing] + " px-5"}><div className={radiusClassName[radius] + " mx-auto max-w-4xl border p-6 text-sm"} style={{ backgroundColor: colors.surface, borderColor: colors.border ?? colors.accent, color: colors.mutedText }}>연결된 샘플 데이터를 찾을 수 없습니다.</div></section>;
+  }
+
+  return (
+    <section className={spacingClassName[spacing] + " px-5"}>
+      <article className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[0.9fr_1.1fr]">
+        <div>
+          <a className="text-sm font-semibold" href={"/" + collection.id} style={{ color: colors.primary }}>{block.props.backLabel ?? "목록으로"}</a>
+          <p className="mt-6 text-sm font-semibold" style={{ color: colors.primary }}>{collection.itemName}</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-5xl" style={{ color: colors.text }}>{stringifyValue(item.title ?? item.name ?? item.id)}</h2>
+          {block.props.subtitle ? <p className="mt-5 text-lg leading-8" style={{ color: colors.mutedText }}>{block.props.subtitle}</p> : null}
+        </div>
+        <div className={radiusClassName[radius] + " " + shadowClassName[shadow] + " border p-6"} style={{ backgroundColor: colors.surface, borderColor: colors.border ?? colors.accent }}>
+          <dl className="grid gap-5">
+            {fields.map((field) => <div className="grid gap-2 border-b pb-4 last:border-b-0 last:pb-0" key={field.id} style={{ borderColor: colors.border ?? colors.accent }}><dt className="text-xs font-semibold uppercase" style={{ color: colors.primary }}>{field.name}</dt><dd className="text-base leading-7" style={{ color: colors.text }}>{stringifyValue(item[field.id])}</dd></div>)}
+          </dl>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function findItem(collection: CollectionDefinition | undefined, itemId: string | undefined) {
+  if (!collection) return null;
+  if (!itemId) return collection.sampleData[0] ?? null;
+  return collection.sampleData.find((item) => item.id === itemId || item.slug === itemId) ?? collection.sampleData[0] ?? null;
+}
+
+function pickFields(collection: CollectionDefinition | undefined, showFields: string[] | undefined) {
+  if (!collection) return [];
+  if (!showFields || showFields.length === 0) return collection.fields.slice(0, 6);
+  return showFields.map((fieldId) => collection.fields.find((field) => field.id === fieldId)).filter((field): field is FieldDefinition => Boolean(field));
+}
+
+function stringifyValue(value: unknown) {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "예" : "아니오";
+  if (value === null || typeof value === "undefined") return "-";
+  return String(value);
+}
+`;
+
 const testimonialsBlockTemplate = `import { radiusClassName, shadowClassName, spacingClassName, type BlockComponentProps } from "./block-types";
 import type { TestimonialsBlock as TestimonialsBlockType } from "../../types/site";
 
@@ -1247,10 +1696,12 @@ body {
 }
 `;
 
-function readmeTemplate(projectName: string) {
+function readmeTemplate(projectName: string, mode: ExportMode) {
   return `# ${projectName}
 
 Exported multi-page Vite React project.
+
+Export mode: **${exportModeName(mode)}**
 
 ## Install
 
@@ -1276,7 +1727,28 @@ npm run build
 - Add a page by appending to \`site.pages\`; home routes to \`/\`, other pages route to \`/\${slug}\`.
 - Update \`site.theme\` to change colors, radius, shadow, spacing, and font family.
 - Header and footer are rendered from \`site.navigation\` and \`site.globalSections\`.
+
+## Export Modes
+
+- Static Website: React Router, \`site.json\`, static pages, header/footer, elements/containers, and stylePack values.
+- Clickable Prototype: Static Website plus mock data and local prototype action helpers. No real API calls are included.
+- Frontend Scaffold: Clickable Prototype plus mock API helpers, auth placeholder context, form/table/dashboard scaffold components, and collection sample data.
+- Full-stack Starter: Documentation placeholder for future Next.js full-stack export. See \`docs/FULL_STACK_STARTER.md\` when this mode is selected.
 `;
+}
+
+function exportModeName(mode: ExportMode) {
+  switch (mode) {
+    case "clickable-prototype":
+      return "Clickable Prototype";
+    case "frontend-scaffold":
+      return "Frontend Scaffold";
+    case "full-stack-starter":
+      return "Full-stack Starter";
+    case "static-website":
+    default:
+      return "Static Website";
+  }
 }
 
 function escapeHtml(value: string) {

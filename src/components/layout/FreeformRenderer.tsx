@@ -1,21 +1,30 @@
 "use client";
 
 import type { CSSProperties, MouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useRef } from "react";
-import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { CSS as DndCSS } from "@dnd-kit/utilities";
-import { Grip, Move, Scan } from "lucide-react";
+import { useRef, useState } from "react";
+import { useDroppable } from "@dnd-kit/core";
+import { Scan } from "lucide-react";
 
 import type { EditorSectionDndContext } from "@/components/editor/dnd-data";
-import { getFreeformCanvasDropId, getFreeformElementDragId } from "@/components/editor/dnd-data";
+import { getFreeformCanvasDropId } from "@/components/editor/dnd-data";
 import { ElementRenderer } from "@/components/elements/ElementRenderer";
 import { toCssStyle } from "@/components/elements/element-utils";
+import {
+  clampRectToBounds,
+  FREEFORM_GRID_SIZE,
+  getResizeCursor,
+  resizeRectFromHandle,
+  snapValue,
+  type FreeformBounds,
+  type FreeformRect,
+  type ResizeHandle,
+} from "@/lib/freeform-layout";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/store/editor-store";
 import type { ElementNode, ElementStyle, FreeformElementLayout } from "@/types/elements";
 import type { PageData, ThemeColors } from "@/types/page";
 
-const SNAP = 8;
+const RESIZE_HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
 type FreeformRendererProps = {
   colors: ThemeColors;
@@ -116,12 +125,12 @@ function EditorFreeformRenderer({
           ...baseStyle,
           backgroundImage:
             "linear-gradient(rgba(148,163,184,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.18) 1px, transparent 1px)",
-          backgroundSize: `${SNAP * 2}px ${SNAP * 2}px`,
+          backgroundSize: `${FREEFORM_GRID_SIZE * 2}px ${FREEFORM_GRID_SIZE * 2}px`,
         }}
       >
         <div className="pointer-events-none absolute left-3 top-3 z-30 flex items-center gap-2 rounded-md border border-slate-200 bg-white/90 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 shadow-sm">
           <Scan size={13} />
-          고급 · Snap {SNAP}px · Responsive 주의
+          고급 · Snap {FREEFORM_GRID_SIZE}px · Responsive 주의
         </div>
         {elements.length === 0 ? (
           <div className="absolute inset-0 grid place-items-center text-xs font-semibold text-slate-400">
@@ -163,49 +172,137 @@ function FreeformElementFrame({
   onElementClick?: (elementId: string, event: MouseEvent<HTMLElement>) => void;
   radius: PageData["theme"]["radius"];
 }) {
+  const selectElement = useEditorStore((state) => state.selectElement);
+  const selectedElementId = useEditorStore((state) => state.selectedElementId);
   const updateFreeformElementLayout = useEditorStore((state) => state.updateFreeformElementLayout);
-  const resizeStartRef = useRef<{ h: number; pointerX: number; pointerY: number; w: number } | null>(null);
-  const { attributes, isDragging, listeners, setNodeRef, transform } = useDraggable({
-    id: getFreeformElementDragId(blockId, element.id),
-    data: {
-      blockId,
-      dragType: "freeformElement",
-      elementId: element.id,
-      layout,
-    },
-  });
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const gestureRef = useRef<FreeformGesture | null>(null);
+  const [activeRect, setActiveRect] = useState<FreeformRect | null>(null);
+  const isSelected = selectedElementId === element.id;
+  const currentRect = activeRect ?? layoutToRect(layout);
   const style: CSSProperties = {
-    ...layoutStyle(layout),
-    opacity: isDragging ? 0.55 : undefined,
-    transform: DndCSS.Translate.toString(transform),
+    ...rectStyle(currentRect, layout.zIndex),
+    touchAction: "none",
   };
 
-  function startResize(event: ReactPointerEvent<HTMLButtonElement>) {
+  function commitRect(nextRect: FreeformRect) {
+    const previousRect = gestureRef.current?.lastRect ?? layoutToRect(layout);
+
+    if (rectsEqual(previousRect, nextRect)) {
+      return;
+    }
+
+    gestureRef.current = gestureRef.current
+      ? {
+          ...gestureRef.current,
+          lastRect: nextRect,
+        }
+      : gestureRef.current;
+
+    setActiveRect(nextRect);
+    updateFreeformElementLayout(blockId, element.id, {
+      breakpoint: layout.breakpoint,
+      h: nextRect.h,
+      historyGroupKey: gestureRef.current?.historyGroupKey,
+      w: nextRect.w,
+      x: nextRect.x,
+      y: nextRect.y,
+    });
+  }
+
+  function startMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || isEditorControlTarget(event.target)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
-    resizeStartRef.current = {
-      h: layout.h,
+    selectElement(element.id);
+
+    const initialRect = layoutToRect(layout);
+    gestureRef.current = {
+      bounds: getFrameBounds(frameRef.current, initialRect),
+      historyGroupKey: createFreeformGestureKey(blockId, element.id),
+      initialRect,
+      kind: "move",
+      lastRect: initialRect,
       pointerX: event.clientX,
       pointerY: event.clientY,
-      w: layout.w,
     };
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
-      const start = resizeStartRef.current;
+      const gesture = gestureRef.current;
 
-      if (!start) {
+      if (!gesture || gesture.kind !== "move") {
         return;
       }
 
-      updateFreeformElementLayout(blockId, element.id, {
-        breakpoint: layout.breakpoint,
-        h: Math.max(48, snap(start.h + moveEvent.clientY - start.pointerY)),
-        w: Math.max(72, snap(start.w + moveEvent.clientX - start.pointerX)),
-      });
+      const nextRect = clampRectToBounds(
+        {
+          ...gesture.initialRect,
+          x: snapValue(gesture.initialRect.x + moveEvent.clientX - gesture.pointerX),
+          y: snapValue(gesture.initialRect.y + moveEvent.clientY - gesture.pointerY),
+        },
+        gesture.bounds,
+      );
+
+      commitRect(nextRect);
     };
 
     const handlePointerUp = () => {
-      resizeStartRef.current = null;
+      gestureRef.current = null;
+      setActiveRect(null);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }
+
+  function startResize(handle: ResizeHandle, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    selectElement(element.id);
+
+    const initialRect = layoutToRect(layout);
+    gestureRef.current = {
+      bounds: getFrameBounds(frameRef.current, initialRect),
+      handle,
+      historyGroupKey: createFreeformGestureKey(blockId, element.id),
+      initialRect,
+      kind: "resize",
+      lastRect: initialRect,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const gesture = gestureRef.current;
+
+      if (!gesture || gesture.kind !== "resize") {
+        return;
+      }
+
+      const resizedRect = resizeRectFromHandle(
+        gesture.initialRect,
+        {
+          x: moveEvent.clientX - gesture.pointerX,
+          y: moveEvent.clientY - gesture.pointerY,
+        },
+        gesture.handle,
+      );
+
+      commitRect(clampRectToBounds(resizedRect, gesture.bounds));
+    };
+
+    const handlePointerUp = () => {
+      gestureRef.current = null;
+      setActiveRect(null);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
@@ -215,34 +312,55 @@ function FreeformElementFrame({
   }
 
   return (
-    <div className="group/freeform absolute" ref={setNodeRef} style={style}>
-      <div className="absolute -left-2 -top-2 z-30 flex items-center gap-1 opacity-0 transition group-hover/freeform:opacity-100 group-focus-within/freeform:opacity-100">
-        <button
-          aria-label="Freeform 요소 이동"
-          className="grid h-7 w-7 cursor-grab place-items-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm active:cursor-grabbing"
-          onClick={(event) => event.stopPropagation()}
-          type="button"
-          {...attributes}
-          {...listeners}
-        >
-          <Move size={14} />
-        </button>
-        <span className="rounded-md bg-slate-950 px-2 py-1 text-[10px] font-bold text-white shadow-sm">
-          x{layout.x} y{layout.y}
-        </span>
-      </div>
-      <div className="h-full min-h-0 overflow-hidden rounded-md ring-1 ring-transparent transition group-hover/freeform:ring-blue-300">
+    <div
+      className={cn("group/freeform absolute", isSelected ? "z-20" : undefined)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onElementClick?.(element.id, event);
+      }}
+      ref={frameRef}
+      style={style}
+    >
+      <div
+        className={cn(
+          "h-full min-h-0 overflow-hidden rounded-md bg-white/0 ring-1 ring-transparent transition",
+          isSelected ? "ring-2 ring-blue-500" : "group-hover/freeform:ring-blue-300",
+        )}
+      >
         <ElementRenderer colors={colors} node={element} onElementClick={onElementClick} radius={radius} />
       </div>
-      <button
-        aria-label="Freeform 요소 크기 조절"
-        className="absolute -bottom-2 -right-2 z-30 grid h-7 w-7 cursor-nwse-resize place-items-center rounded-md border border-slate-200 bg-white text-slate-500 opacity-0 shadow-sm transition group-hover/freeform:opacity-100 group-focus-within/freeform:opacity-100"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={startResize}
-        type="button"
-      >
-        <Grip size={14} />
-      </button>
+      <div
+        aria-label="Freeform 요소 이동"
+        className={cn(
+          "absolute inset-0 z-30 cursor-move rounded-md transition",
+          isSelected ? "bg-blue-500/0" : "group-hover/freeform:bg-blue-500/[0.02]",
+        )}
+        onPointerDown={startMove}
+        role="button"
+        tabIndex={-1}
+      />
+      {isSelected ? (
+        <>
+          <div className="pointer-events-none absolute left-1 top-1 z-50 rounded bg-slate-950/85 px-2 py-1 text-[10px] font-bold leading-none text-white shadow-sm">
+            {currentRect.w}x{currentRect.h} · x{currentRect.x} y{currentRect.y}
+          </div>
+          {RESIZE_HANDLES.map((handle) => (
+            <button
+              aria-label={`Freeform 요소 ${handle} 크기 조절`}
+              className={cn(
+                "absolute z-50 h-3 w-3 rounded-full border border-blue-600 bg-white shadow-sm ring-2 ring-white transition hover:scale-110",
+                handleClassName(handle),
+              )}
+              data-freeform-control="true"
+              key={handle}
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => startResize(handle, event)}
+              style={{ cursor: getResizeCursor(handle) }}
+              type="button"
+            />
+          ))}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -273,6 +391,27 @@ function MobileFallback({
   );
 }
 
+type FreeformGesture =
+  | {
+      bounds: FreeformBounds;
+      historyGroupKey: string;
+      initialRect: FreeformRect;
+      kind: "move";
+      lastRect: FreeformRect;
+      pointerX: number;
+      pointerY: number;
+    }
+  | {
+      bounds: FreeformBounds;
+      handle: ResizeHandle;
+      historyGroupKey: string;
+      initialRect: FreeformRect;
+      kind: "resize";
+      lastRect: FreeformRect;
+      pointerX: number;
+      pointerY: number;
+    };
+
 function findLayout(
   layouts: FreeformElementLayout[],
   elementId: string,
@@ -293,17 +432,76 @@ function createFallbackLayout(elementId: string): FreeformElementLayout {
   };
 }
 
-function layoutStyle(layout: FreeformElementLayout): CSSProperties {
+function layoutToRect(layout: FreeformElementLayout): FreeformRect {
   return {
-    height: `${layout.h}px`,
-    left: `${layout.x}px`,
-    position: "absolute",
-    top: `${layout.y}px`,
-    width: `${layout.w}px`,
-    zIndex: layout.zIndex,
+    h: layout.h,
+    w: layout.w,
+    x: layout.x,
+    y: layout.y,
   };
 }
 
-function snap(value: number) {
-  return Math.max(0, Math.round(value / SNAP) * SNAP);
+function layoutStyle(layout: FreeformElementLayout): CSSProperties {
+  return rectStyle(layoutToRect(layout), layout.zIndex);
+}
+
+function rectStyle(rect: FreeformRect, zIndex: number | undefined): CSSProperties {
+  return {
+    height: `${rect.h}px`,
+    left: `${rect.x}px`,
+    position: "absolute",
+    top: `${rect.y}px`,
+    width: `${rect.w}px`,
+    zIndex,
+  };
+}
+
+function rectsEqual(a: FreeformRect, b: FreeformRect) {
+  return a.h === b.h && a.w === b.w && a.x === b.x && a.y === b.y;
+}
+
+function getFrameBounds(frame: HTMLDivElement | null, fallbackRect: FreeformRect): FreeformBounds {
+  const parent = frame?.parentElement;
+
+  return {
+    h: parent?.clientHeight || Math.max(fallbackRect.y + fallbackRect.h, fallbackRect.h),
+    w: parent?.clientWidth || Math.max(fallbackRect.x + fallbackRect.w, fallbackRect.w),
+  };
+}
+
+function createFreeformGestureKey(blockId: string, elementId: string) {
+  return `freeform-gesture:${blockId}:${elementId}:${Date.now()}`;
+}
+
+function isEditorControlTarget(target: EventTarget) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      'button, a, input, textarea, select, [contenteditable="true"], [data-freeform-control="true"]',
+    ),
+  );
+}
+
+function handleClassName(handle: ResizeHandle) {
+  switch (handle) {
+    case "n":
+      return "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2";
+    case "e":
+      return "right-0 top-1/2 -translate-y-1/2 translate-x-1/2";
+    case "s":
+      return "bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2";
+    case "w":
+      return "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2";
+    case "ne":
+      return "right-0 top-0 -translate-y-1/2 translate-x-1/2";
+    case "nw":
+      return "left-0 top-0 -translate-x-1/2 -translate-y-1/2";
+    case "se":
+      return "bottom-0 right-0 translate-x-1/2 translate-y-1/2";
+    case "sw":
+      return "bottom-0 left-0 -translate-x-1/2 translate-y-1/2";
+  }
 }

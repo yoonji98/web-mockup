@@ -4,9 +4,11 @@ import { pageDataSchema } from "@/schemas/page-schema";
 import { siteDataSchema } from "@/schemas/site-schema";
 import { pageDataToSiteData } from "@/lib/site-data";
 import type { PageData, SiteData } from "@/types/page";
+import type { ExportMode } from "@/types/export";
 import { createReactProjectFiles } from "@/lib/export/templates";
 
 export type GenerateReactProjectInput = {
+  mode?: ExportMode;
   page?: PageData;
   projectName: string;
   site?: SiteData;
@@ -19,6 +21,7 @@ export type GeneratedReactProject = {
 };
 
 export async function generateReactProjectZip({
+  mode = "static-website",
   page,
   projectName,
   site,
@@ -28,6 +31,7 @@ export async function generateReactProjectZip({
   const zip = new JSZip();
 
   for (const file of createReactProjectFiles({
+    mode,
     projectName: safeProjectName,
     site: parsedSite,
   })) {
